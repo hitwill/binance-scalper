@@ -1,0 +1,19 @@
+{
+  "name": "binance-scalper",
+  "version": "1.0.0",
+  "description": "Scalper algorithm for cryptocurrencies",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hitwill/binance-scalper.git"
+  },
+  "author": "Will Gikandi",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/hitwill/binance-scalper/issues"
+  },
+  "homepage": "https://github.com/hitwill/binance-scalper#readme"
+}
