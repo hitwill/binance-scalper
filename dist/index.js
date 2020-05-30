@@ -19,6 +19,7 @@ let assets = {
         minPrice: Infinity,
         maxPrice: 0,
         tickSize: 0,
+        takeProfitPips: 0
     },
     baseAsset: {
         name: process.env.BASE_ASSET,
@@ -31,7 +32,9 @@ let assets = {
 let tradingSymbol = assets.baseAsset.name + assets.quoteAsset.name;
 async function start() {
     await getExchangeInfo(); //populate variables
-    listenMarket(); //start listening
+    assets.quoteAsset.takeProfitPips = getTakeProfitPips();
+    console.log(currentFee, assets);
+    //listenMarket(); //start listening
 }
 async function getExchangeInfo() {
     let exchangeInfo = await client.exchangeInfo();
@@ -86,10 +89,40 @@ function calcStandardDev() {
     for (let i = 0, size = priceTicker.length; i < size; i++) {
         newTicker.push(priceTicker[i]);
         standardDeviation = mathjs_1.std(priceTicker);
-        if (standardDeviation > minTradeableDeviation)
+        if (standardDeviation >= assets.quoteAsset.takeProfitPips)
             break; //ticker is long enought
     }
     priceTicker = newTicker; // resize the ticker
+}
+function toPrecision(num, digits, roundUpwards) {
+    let precise;
+    if (roundUpwards == true) {
+        let tail;
+        let str = String(num);
+        let position = str.indexOf('.') + digits + 1;
+        tail = Number(str.slice(position, position + 1));
+        if (tail > 0) {
+            precise = Number(str.slice(0, position)) + Number('0.'.padEnd(digits + 1, '0') + '1');
+        }
+        else {
+            precise = Number(str.slice(0, position));
+        }
+    }
+    else {
+        precise = Number(num.toFixed(digits)); //round as normail
+    }
+    return precise;
+}
+function getMinProfitPips() {
+    //formula below comes from: profit = volume(sellingPrice = buyingPrice).((100-fee)/100)
+    let profit = assets.quoteAsset.tickSize; //just one pip
+    let pips = (100 * profit) / (100 - currentFee.taker); //convert to pips
+    pips = toPrecision(pips, assets.quoteAsset.precision, true); //set precission and round it up
+    return pips;
+}
+function getTakeProfitPips() {
+    let minProfit = getMinProfitPips(); //our takeProfit is just the mininimum profit we can get (scalping)
+    return minProfit; //we can add rules to increase profit later
 }
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {

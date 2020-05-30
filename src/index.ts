@@ -19,6 +19,7 @@ let assets: assets = {
         minPrice: Infinity,
         maxPrice: 0,
         tickSize: 0,
+        takeProfitPips: 0
     },
     baseAsset: {
         name: process.env.BASE_ASSET,
@@ -33,7 +34,8 @@ let tradingSymbol: string = assets.baseAsset.name + assets.quoteAsset.name;
 
 async function start() {
     await getExchangeInfo(); //populate variables
-    listenMarket(); //start listening
+    assets.quoteAsset.takeProfitPips = getTakeProfitPips();
+    //listenMarket(); //start listening
 }
 
 async function getExchangeInfo() {
@@ -95,10 +97,15 @@ function calcStandardDev() {
         newTicker.push(priceTicker[i]);
         standardDeviation = std(priceTicker);
         if (standardDeviation > minTradeableDeviation) break; //ticker is long enought
+        if (standardDeviation >= assets.quoteAsset.takeProfitPips) break; //ticker is long enought
     }
     priceTicker = newTicker; // resize the ticker
 }
 
+function getTakeProfitPips() {
+    let minProfit = getMinProfitPips(); //our takeProfit is just the mininimum profit we can get (scalping)
+    return minProfit; //we can add rules to increase profit later
+}
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
         addPriceToTicker(trade.price);
