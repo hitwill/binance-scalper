@@ -10,7 +10,7 @@ const client = Binance({
 
 let priceTicker: number[] = []; //hold a list of recent prices
 let standardDeviation: number = 0;
-let minTradeableDeviation: number; //getMinTradeableDeviation();
+
 let currentFee: fee = { maker: Infinity, taker: Infinity };
 let assets: assets = {
     quoteAsset: {
@@ -46,7 +46,7 @@ async function getExchangeInfo() {
     extractRules(symbol);
 }
 
-function getSymbol(exchangeInfo: import("binance-api-node").ExchangeInfo) {
+function getSymbol(exchangeInfo: import('binance-api-node').ExchangeInfo) {
     let symbol: any;
     for (let i = 0, size = exchangeInfo.symbols.length; i < size; i++) {
         symbol = exchangeInfo.symbols[i];
@@ -66,7 +66,11 @@ function extractFees(fees: any[]) {
     }
 }
 
-function extractRules(symbol: { baseAssetPrecision: number; quoteAssetPrecision: number; filters: string | any[]; }) {
+function extractRules(symbol: {
+    baseAssetPrecision: number;
+    quoteAssetPrecision: number;
+    filters: string | any[];
+}) {
     assets.baseAsset.precision = symbol.baseAssetPrecision;
     assets.quoteAsset.precision = symbol.quoteAssetPrecision;
 
@@ -92,11 +96,10 @@ function addPriceToTicker(price) {
 }
 
 function calcStandardDev() {
-    let newTicker = []; // we'll resize the ticker to fit the standard dev we can trade in
+    let newTicker: number[] = []; // we'll resize the ticker to fit the standard dev we can trade in
     for (let i = 0, size = priceTicker.length; i < size; i++) {
         newTicker.push(priceTicker[i]);
         standardDeviation = std(priceTicker);
-        if (standardDeviation > minTradeableDeviation) break; //ticker is long enought
         if (standardDeviation >= assets.quoteAsset.takeProfitPips) break; //ticker is long enought
     }
     priceTicker = newTicker; // resize the ticker
@@ -120,10 +123,20 @@ function toPrecision(num: number, digits: number, roundUpwards: boolean) {
     }
     return precise;
 }
+
+function getMinProfitPips() {
+    //formula below comes from: profit = volume(sellingPrice = buyingPrice).((100-fee)/100)
+    let profit = assets.quoteAsset.tickSize; //just one pip
+    let pips = (100 * profit) / (100 - currentFee.taker); //convert to pips
+    pips = toPrecision(pips, assets.quoteAsset.precision, true); //set precission and round it up
+    return pips;
+}
+
 function getTakeProfitPips() {
     let minProfit = getMinProfitPips(); //our takeProfit is just the mininimum profit we can get (scalping)
     return minProfit; //we can add rules to increase profit later
 }
+
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
         addPriceToTicker(trade.price);
