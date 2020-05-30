@@ -131,17 +131,14 @@ function calcQuantile() {
         false
     );
 }
+
 function toPrecision(num: number, digits: number, roundUpwards: boolean) {
     let precise: number;
-    
     if (roundUpwards == true) {
         let tail: number;
         let str = String(num);
         let position: number = str.indexOf('.') + digits + 1;
         tail = Number(str.slice(position, position + 1));
-        if(tail > 0) {
-            precise = Number(str.slice(0, position)) + Number('0.'.padEnd(digits+1,'0')+'1');
-        }else{
         if (tail > 0) {
             precise =
                 Number(str.slice(0, position)) +
@@ -150,7 +147,6 @@ function toPrecision(num: number, digits: number, roundUpwards: boolean) {
             precise = Number(str.slice(0, position));
         }
     } else {
-        precise = Number(num.toFixed(digits)); //round as normail
         precise = Number(Number(num).toFixed(digits)); //round as normail
     }
     return precise;
