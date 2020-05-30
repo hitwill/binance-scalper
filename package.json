@@ -4,7 +4,10 @@
   "description": "Scalper algorithm for cryptocurrencies",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "compile": "tsc",
+    "production": "node dist/index.js",
+    "dev": "npm run compile && npm run production"
   },
   "repository": {
     "type": "git",
@@ -15,5 +18,14 @@
   "bugs": {
     "url": "https://github.com/hitwill/binance-scalper/issues"
   },
-  "homepage": "https://github.com/hitwill/binance-scalper#readme"
+  "homepage": "https://github.com/hitwill/binance-scalper#readme",
+  "dependencies": {
+    "@types/node": "^14.0.5",
+    "binance-api-node": "^0.9.23",
+    "dotenv": "^8.2.0",
+    "mathjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/mathjs": "^6.0.5"
+  }
 }
