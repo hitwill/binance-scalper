@@ -1,4 +1,4 @@
-import { std } from 'mathjs';
+import { std, quantileSeq } from 'mathjs';
 import * as dotenv from 'dotenv';
 import Binance from 'binance-api-node';
 
@@ -9,7 +9,9 @@ const client = Binance({
 });
 
 let priceTicker: number[] = []; //hold a list of recent prices
-let standardDeviation: number = 0;
+let minTickerLength = 10; //min number of prices to use for calculation
+let quantile: quantile = { upper: Infinity, lower: 0 };
+let findEntry: boolean = false;
 
 let currentFee: fee = { maker: Infinity, taker: Infinity };
 let assets: assets = {
@@ -19,7 +21,7 @@ let assets: assets = {
         minPrice: Infinity,
         maxPrice: 0,
         tickSize: 0,
-        takeProfitPips: 0
+        takeProfitPips: 0,
     },
     baseAsset: {
         name: process.env.BASE_ASSET,
@@ -34,9 +36,8 @@ let tradingSymbol: string = assets.baseAsset.name + assets.quoteAsset.name;
 
 async function start() {
     await getExchangeInfo(); //populate variables
-    assets.quoteAsset.takeProfitPips = getTakeProfitPips();
-    //listenMarket(); //start listening
     assets.quoteAsset.takeProfitPips = calcTakeProfitPips();
+    listenMarket(); //start listening
 }
 
 async function getExchangeInfo() {
@@ -93,7 +94,7 @@ function extractRules(symbol: {
 }
 
 function addPriceToTicker(price) {
-    priceTicker.unshift(price);
+    priceTicker.unshift(Number(price));
 }
 
 function calcStandardDev() {
@@ -101,8 +102,6 @@ function calcStandardDev() {
     let newTicker: number[] = []; // we'll resize the ticker to fit the standard dev we can trade in
     for (let i = 0, size = priceTicker.length; i < size; i++) {
         newTicker.push(priceTicker[i]);
-        standardDeviation = std(priceTicker);
-        if (standardDeviation >= assets.quoteAsset.takeProfitPips) break; //ticker is long enought
         if (i < minTickerLength) {
             standardDeviation = 0;
             continue;
