@@ -119,6 +119,18 @@ function calcStandardDev() {
     priceTicker = newTicker; // resize the ticker
 }
 
+function calcQuantile() {
+    quantile.lower = toPrecision(
+        quantileSeq(priceTicker, 0.01) as number,
+        assets.quoteAsset.precision,
+        false
+    );
+    quantile.upper = toPrecision(
+        quantileSeq(priceTicker, 0.99) as number,
+        assets.quoteAsset.precision,
+        false
+    );
+}
 function toPrecision(num: number, digits: number, roundUpwards: boolean) {
     let precise: number;
     
