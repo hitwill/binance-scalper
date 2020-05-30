@@ -3,6 +3,11 @@ interface fee {
     taker: number;
 }
 
+interface quantile {
+    upper: number;
+    lower: number;
+}
+
 interface assets {
     quoteAsset: {
         name: string;
