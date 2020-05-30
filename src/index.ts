@@ -130,10 +130,16 @@ function toPrecision(num: number, digits: number, roundUpwards: boolean) {
         if(tail > 0) {
             precise = Number(str.slice(0, position)) + Number('0.'.padEnd(digits+1,'0')+'1');
         }else{
+        if (tail > 0) {
+            precise =
+                Number(str.slice(0, position)) +
+                Number('0.'.padEnd(digits + 1, '0') + '1');
+        } else {
             precise = Number(str.slice(0, position));
         }
     } else {
         precise = Number(num.toFixed(digits)); //round as normail
+        precise = Number(Number(num).toFixed(digits)); //round as normail
     }
     return precise;
 }
