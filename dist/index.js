@@ -10,7 +10,6 @@ const client = binance_api_node_1.default({
 });
 let priceTicker = []; //hold a list of recent prices
 let standardDeviation = 0;
-let minTradeableDeviation; //getMinTradeableDeviation();
 let currentFee = { maker: Infinity, taker: Infinity };
 let assets = {
     quoteAsset: {
