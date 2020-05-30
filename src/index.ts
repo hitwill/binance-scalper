@@ -36,6 +36,7 @@ async function start() {
     await getExchangeInfo(); //populate variables
     assets.quoteAsset.takeProfitPips = getTakeProfitPips();
     //listenMarket(); //start listening
+    assets.quoteAsset.takeProfitPips = calcTakeProfitPips();
 }
 
 async function getExchangeInfo() {
@@ -124,7 +125,7 @@ function toPrecision(num: number, digits: number, roundUpwards: boolean) {
     return precise;
 }
 
-function getMinProfitPips() {
+function calcMinProfitPips() {
     //formula below comes from: profit = volume(sellingPrice = buyingPrice).((100-fee)/100)
     let profit = assets.quoteAsset.tickSize; //just one pip
     let pips = (100 * profit) / (100 - currentFee.taker); //convert to pips
@@ -132,8 +133,8 @@ function getMinProfitPips() {
     return pips;
 }
 
-function getTakeProfitPips() {
-    let minProfit = getMinProfitPips(); //our takeProfit is just the mininimum profit we can get (scalping)
+function calcTakeProfitPips() {
+    let minProfit = calcMinProfitPips(); //our takeProfit is just the mininimum profit we can get (scalping)
     return minProfit; //we can add rules to increase profit later
 }
 
