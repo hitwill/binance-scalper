@@ -165,16 +165,28 @@ function calcTakeProfitPips() {
     return minProfit; //we can add rules to increase profit later
 }
 
+function setPosition() {
+    if (findEntry == false) return;
+    if (priceTicker[0] <= quantile.lower) {
+        console.log('buy at: ' + priceTicker[0]);
+    }
+
+    if (priceTicker[0] >= quantile.upper) {
+        console.log('sell at: ' + priceTicker[0]);
+    }
+}
+
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
+        console.log(trade.price);
         addPriceToTicker(trade.price);
         calcStandardDev();
-        console.log(standardDeviation, priceTicker);
+        calcQuantile();
+        setPosition();
     });
 }
 
 start();
-
 //now add price to an array and maintain length with a function <--length can be adjusted later
 //calculate standard dev
 //calculate price entry (quartile) and exit (min profit)
