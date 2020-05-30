@@ -97,11 +97,24 @@ function addPriceToTicker(price) {
 }
 
 function calcStandardDev() {
+    let standardDeviation: number = 0;
     let newTicker: number[] = []; // we'll resize the ticker to fit the standard dev we can trade in
     for (let i = 0, size = priceTicker.length; i < size; i++) {
         newTicker.push(priceTicker[i]);
         standardDeviation = std(priceTicker);
         if (standardDeviation >= assets.quoteAsset.takeProfitPips) break; //ticker is long enought
+        if (i < minTickerLength) {
+            standardDeviation = 0;
+            continue;
+        }
+        standardDeviation = std(newTicker);
+        //multiply deviate by 2 because it's one end, middle, then other end
+        if (standardDeviation * 2 >= assets.quoteAsset.takeProfitPips) {
+            findEntry = true;
+            break; //ticker is long enought
+        } else {
+            findEntry = false;
+        }
     }
     priceTicker = newTicker; // resize the ticker
 }
