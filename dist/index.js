@@ -8,10 +8,13 @@ const client = binance_api_node_1.default({
     apiKey: process.env.API_KEY,
     apiSecret: process.env.API_SECRET,
 });
+//config vars
+let channelLengthMultiple = 2; //multiple of standard dev long channel
+//end config
 let priceTicker = []; //hold a list of recent prices
 let quantile = { upper: Infinity, lower: 0 };
 let findEntry = false;
-let channelLengthMultiple = 2; //multiple of standard dev long channel
+let orders = [];
 let currentFee = { maker: Infinity, taker: Infinity };
 let assets = {
     quoteAsset: {
@@ -21,6 +24,7 @@ let assets = {
         maxPrice: 0,
         tickSize: 0,
         takeProfitPips: 0,
+        balance: null,
     },
     baseAsset: {
         name: process.env.BASE_ASSET,
@@ -28,13 +32,32 @@ let assets = {
         minQty: Infinity,
         maxQty: 0,
         stepSize: 0,
+        balance: null,
     },
 };
 let tradingSymbol = assets.baseAsset.name + assets.quoteAsset.name;
 async function start() {
-    await getExchangeInfo(); //populate variables
-    assets.quoteAsset.takeProfitPips = calcTakeProfitPips();
-    listenMarket(); //start listening
+    Promise.all([
+        getExchangeInfo(),
+        getBalances(),
+    ]).then((values) => {
+        assets.quoteAsset.takeProfitPips = calcTakeProfitPips();
+        listenMarket(); //start listening
+    });
+}
+async function getBalances() {
+    let accountInfo = await client.accountInfo();
+    let balances = accountInfo['balances'];
+    for (let i = 0, size = balances.length; i < size; i++) {
+        let balance = balances[i];
+        if (balance.asset == assets.baseAsset.name)
+            assets.baseAsset.balance = Number(balance.free);
+        if (balance.asset == assets.quoteAsset.name)
+            assets.quoteAsset.balance = Number(balance.free);
+        if (assets.baseAsset.balance !== null &&
+            assets.quoteAsset.balance !== null)
+            break;
+    }
 }
 async function getExchangeInfo() {
     let exchangeInfo = await client.exchangeInfo();
@@ -127,7 +150,7 @@ function isEvenlyDistributed(ticker) {
             switched++;
         wasPositive = isPositive;
     }
-    if ((switched / dataPoints) >= 0.4) {
+    if (switched / dataPoints >= 0.4) {
         return true;
     }
     else {
@@ -170,28 +193,76 @@ function calcTakeProfitPips() {
     let minProfit = calcMinProfitPips(); //our takeProfit is just the mininimum profit we can get (scalping)
     return minProfit; //we can add rules to increase profit later
 }
-function setPosition() {
+function enterPosition() {
     if (findEntry == false)
         return;
+    let entryType = null;
     if (priceTicker[0] <= quantile.lower) {
         console.log('buy at: ' + priceTicker[0]);
+        entryType = 'BUY';
     }
     if (priceTicker[0] >= quantile.upper) {
         console.log('sell at: ' + priceTicker[0]);
+        entryType = 'SELL';
     }
 }
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
-        console.log(trade.price);
         addPriceToTicker(trade.price);
         calcStandardDev();
         calcQuantile();
-        setPosition();
+        enterPosition();
     });
 }
-start();
+//start();
 //now add price to an array and maintain length with a function <--length can be adjusted later
 //calculate standard dev
 //calculate price entry (quartile) and exit (min profit)
 //https://mathjs.org/docs/reference/functions/std.html
+async function listenAccount() {
+    client.ws.user((msg) => {
+        switch (msg.eventType) {
+            case 'account':
+                assets.baseAsset.balance = Number(msg.balances[assets.baseAsset.name].available);
+                assets.quoteAsset.balance = Number(msg.balances[assets.quoteAsset.name].available);
+                break;
+            case 'executionReport':
+                if (msg.symbol != tradingSymbol)
+                    return; //not for us
+                let order = {
+                    orderId: Number(msg.orderId),
+                    orderStatus: msg.orderStatus,
+                };
+                let i = orders.findIndex((x) => x.orderId == msg.orderId);
+                if (i == -1) {
+                    orders.push(order);
+                }
+                else {
+                    orders[i] = order;
+                }
+                trimOrders();
+                break;
+        }
+    });
+}
+async function getOpenOrders() {
+    let openOrders = await client.openOrders({ symbol: tradingSymbol });
+    for (let i = 0, size = openOrders.length; i < size; i++) {
+        if (openOrders[i].status == 'NEW') {
+            orders.push({
+                orderId: Number(openOrders[i].orderId),
+                orderStatus: openOrders[i].status,
+            });
+        }
+    }
+    console.log(orders);
+}
+function trimOrders() {
+    //remove order statuses we don't need to monitor
+    for (let i = 0, size = orders.length; i < size; i++) {
+        if (orders[i].orderStatus != 'NEW')
+            orders.splice(i, 1);
+    }
+}
+getOpenOrders();
 //# sourceMappingURL=index.js.map
