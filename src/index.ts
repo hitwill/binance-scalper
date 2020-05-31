@@ -9,6 +9,7 @@ const client = Binance({
 });
 
 //Config vars
+//config vars
 let channelLengthMultiple: number = 2; //multiple of standard dev long channel
 //end config
 
