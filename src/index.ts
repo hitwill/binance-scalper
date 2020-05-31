@@ -8,10 +8,13 @@ const client = Binance({
     apiSecret: process.env.API_SECRET,
 });
 
+//Config vars
+let channelLengthMultiple: number = 2; //multiple of standard dev long channel
+//end config
+
 let priceTicker: number[] = []; //hold a list of recent prices
 let quantile: quantile = { upper: Infinity, lower: 0 };
 let findEntry: boolean = false;
-let channelLengthMultiple: number = 2; //multiple of standard dev long channel
 
 let currentFee: fee = { maker: Infinity, taker: Infinity };
 let assets: assets = {
@@ -197,7 +200,7 @@ function calcTakeProfitPips() {
     return minProfit; //we can add rules to increase profit later
 }
 
-function setPosition() {
+function enterPosition() {
     if (findEntry == false) return;
     if (priceTicker[0] <= quantile.lower) {
         console.log('buy at: ' + priceTicker[0]);
@@ -210,11 +213,10 @@ function setPosition() {
 
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
-        console.log(Number(trade.price));
         addPriceToTicker(trade.price);
         calcStandardDev();
         calcQuantile();
-        setPosition();
+        enterPosition();
     });
 }
 
