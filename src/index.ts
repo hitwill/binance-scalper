@@ -1,6 +1,6 @@
 import { std, quantileSeq, mean } from 'mathjs';
 import * as dotenv from 'dotenv';
-import Binance from 'binance-api-node';
+import Binance, { OrderStatus } from 'binance-api-node';
 
 dotenv.config();
 const client = Binance({
@@ -281,6 +281,19 @@ async function listenAccount() {
                 break;
         }
     });
+}
+
+async function getOpenOrders() {
+    let openOrders = await client.openOrders({ symbol: tradingSymbol });
+    for (let i = 0, size = openOrders.length; i < size; i++) {
+        if ((openOrders[i].status as orderStatus) == ('NEW' as orderStatus)) {
+            orders.push({
+                orderId: Number(openOrders[i].orderId),
+                orderStatus: openOrders[i].status as orderStatus,
+            });
+        }
+    }
+    console.log(orders);
 }
 
 function trimOrders() {
