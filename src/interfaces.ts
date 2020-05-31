@@ -27,3 +27,8 @@ interface assets {
         balance: number;
     };
 }
+
+interface order {
+    orderId: number;
+    orderStatus: orderStatuses;
+}

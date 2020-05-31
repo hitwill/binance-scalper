@@ -8,7 +8,6 @@ const client = Binance({
     apiSecret: process.env.API_SECRET,
 });
 
-//Config vars
 //config vars
 let channelLengthMultiple: number = 2; //multiple of standard dev long channel
 //end config
@@ -16,6 +15,7 @@ let channelLengthMultiple: number = 2; //multiple of standard dev long channel
 let priceTicker: number[] = []; //hold a list of recent prices
 let quantile: quantile = { upper: Infinity, lower: 0 };
 let findEntry: boolean = false;
+let orders: order[] = [];
 
 let currentFee: fee = { maker: Infinity, taker: Infinity };
 let assets: assets = {
@@ -252,13 +252,32 @@ start();
 //https://mathjs.org/docs/reference/functions/std.html
 async function listenAccount() {
     client.ws.user((msg : any) => {
+    client.ws.user((msg: any) => {
         switch (msg.eventType) {
             case 'account':
                 assets.baseAsset.balance = Number(msg.balances[assets.baseAsset.name].available);
                 assets.quoteAsset.balance = Number(msg.balances[assets.quoteAsset.name].available);
                 console.log(assets);
+                assets.baseAsset.balance = Number(
+                    msg.balances[assets.baseAsset.name].available
+                );
+                assets.quoteAsset.balance = Number(
+                    msg.balances[assets.quoteAsset.name].available
+                );
                 break;
             case 'executionReport':
+                if (msg.symbol != tradingSymbol) return; //not for us
+                let order: order = {
+                    orderId: Number(msg.orderId),
+                    orderStatus: msg.orderStatus,
+                };
+                let i = orders.findIndex((x) => x.orderId == msg.orderId);
+                if (i == -1) {
+                    orders.push(order);
+                }else {
+                    orders[i] = order;
+                }
+                console.log(orders);
                 break;
         }
     });
