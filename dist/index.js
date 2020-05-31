@@ -40,7 +40,7 @@ async function start() {
     Promise.all([
         getExchangeInfo(),
         getBalances(),
-        getOpenOrders()
+        getOpenOrders(),
     ]).then((values) => {
         assets.quoteAsset.takeProfitPips = calcTakeProfitPips();
         listenAccount();
@@ -66,7 +66,7 @@ async function getExchangeInfo() {
     let fees = await client.tradeFee();
     let symbol = getSymbol(exchangeInfo);
     extractFees(fees.tradeFee);
-    console.log(symbol);
+    extractRules(symbol);
 }
 function getSymbol(exchangeInfo) {
     let symbol;
@@ -195,9 +195,7 @@ function calcTakeProfitPips() {
     let minProfit = calcMinProfitPips(); //our takeProfit is just the mininimum profit we can get (scalping)
     return minProfit; //we can add rules to increase profit later
 }
-function enterPosition() {
-    if (findEntry == false)
-        return;
+function enterPositions() {
     let entryType = null;
     if (priceTicker[0] <= quantile.lower) {
         console.log('buy at: ' + priceTicker[0]);
@@ -208,19 +206,34 @@ function enterPosition() {
         entryType = 'SELL';
     }
 }
+function getUnenteredPositions() {
+    let toExit = [];
+    for (let i = 0, size = orders.length; i < size; i++) {
+        if (orders[i].orderStatus == 'NEW')
+            toExit.push(orders[i].orderId);
+    }
+    return toExit;
+}
+async function exitUnenteredPositions() {
+    let toExit = getUnenteredPositions(); //we store here - because the orders array will be changing through webhooks as we cancel
+    for (let i = 0, size = toExit.length; i < size; i++) {
+        client.cancelOrder({
+            symbol: tradingSymbol,
+            orderId: toExit[i],
+        });
+    }
+}
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
         addPriceToTicker(trade.price);
         calcStandardDev();
         calcQuantile();
-        enterPosition();
+        exitUnenteredPositions(); //exit unentered positions
+        if (findEntry) {
+            enterPositions();
+        }
     });
 }
-//start();
-//now add price to an array and maintain length with a function <--length can be adjusted later
-//calculate standard dev
-//calculate price entry (quartile) and exit (min profit)
-//https://mathjs.org/docs/reference/functions/std.html
 async function listenAccount() {
     client.ws.user((msg) => {
         switch (msg.eventType) {
@@ -257,7 +270,6 @@ async function getOpenOrders() {
             });
         }
     }
-    console.log(orders);
 }
 function trimOrders() {
     //remove order statuses we don't need to monitor
@@ -265,6 +277,17 @@ function trimOrders() {
         if (orders[i].orderStatus != 'NEW')
             orders.splice(i, 1);
     }
+    console.log(orders);
 }
-getOpenOrders();
+//start();
+test();
+async function test() {
+    listenAccount();
+    await getOpenOrders();
+    console.log(orders);
+    setTimeout(function () {
+        console.log('listening');
+        exitUnenteredPositions();
+    }, 10000);
+}
 //# sourceMappingURL=index.js.map
