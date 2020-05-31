@@ -25,6 +25,7 @@ let assets: assets = {
         maxPrice: 0,
         tickSize: 0,
         takeProfitPips: 0,
+        balance: null,
     },
     baseAsset: {
         name: process.env.BASE_ASSET,
@@ -32,15 +33,37 @@ let assets: assets = {
         minQty: Infinity,
         maxQty: 0,
         stepSize: 0,
+        balance: null,
     },
 };
 
 let tradingSymbol: string = assets.baseAsset.name + assets.quoteAsset.name;
 
 async function start() {
-    await getExchangeInfo(); //populate variables
+    Promise.all([
+        getExchangeInfo(), //populate variables
+        getBalances(),
+    ]).then((values) => {
     assets.quoteAsset.takeProfitPips = calcTakeProfitPips();
     listenMarket(); //start listening
+    });
+}
+
+async function getBalances() {
+    let accountInfo = await client.accountInfo();
+    let balances = accountInfo['balances'];
+    for (let i = 0, size = balances.length; i < size; i++) {
+        let balance = balances[i];
+        if (balance.asset == assets.baseAsset.name)
+            assets.baseAsset.balance = Number(balance.free);
+        if (balance.asset == assets.quoteAsset.name)
+            assets.quoteAsset.balance = Number(balance.free);
+        if (
+            assets.baseAsset.balance !== null &&
+            assets.quoteAsset.balance !== null
+        )
+            break;
+    }
 }
 
 async function getExchangeInfo() {

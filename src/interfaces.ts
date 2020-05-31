@@ -16,6 +16,14 @@ interface assets {
         maxPrice: number;
         tickSize: number;
         takeProfitPips: number;
+        balance: number;
     };
-    baseAsset: { name: string; precision: number; minQty: number ; maxQty: number; stepSize: number };
+    baseAsset: {
+        name: string;
+        precision: number;
+        minQty: number;
+        maxQty: number;
+        stepSize: number;
+        balance: number;
+    };
 }
