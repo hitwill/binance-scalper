@@ -44,9 +44,11 @@ async function start() {
     Promise.all([
         getExchangeInfo(), //populate variables
         getBalances(),
+        getOpenOrders()
     ]).then((values) => {
-    assets.quoteAsset.takeProfitPips = calcTakeProfitPips();
-    listenMarket(); //start listening
+        assets.quoteAsset.takeProfitPips = calcTakeProfitPips();
+        listenAccount();
+        listenMarket(); //start listening
     });
 }
 
@@ -226,12 +228,15 @@ function calcTakeProfitPips() {
 
 function enterPosition() {
     if (findEntry == false) return;
+    let entryType: string | null = null;
     if (priceTicker[0] <= quantile.lower) {
         console.log('buy at: ' + priceTicker[0]);
+        entryType = 'BUY';
     }
 
     if (priceTicker[0] >= quantile.upper) {
         console.log('sell at: ' + priceTicker[0]);
+        entryType = 'SELL';
     }
 }
 
@@ -244,20 +249,10 @@ function listenMarket() {
     });
 }
 
-start();
-//now add price to an array and maintain length with a function <--length can be adjusted later
-//calculate standard dev
-//calculate price entry (quartile) and exit (min profit)
-
-//https://mathjs.org/docs/reference/functions/std.html
 async function listenAccount() {
-    client.ws.user((msg : any) => {
     client.ws.user((msg: any) => {
         switch (msg.eventType) {
             case 'account':
-                assets.baseAsset.balance = Number(msg.balances[assets.baseAsset.name].available);
-                assets.quoteAsset.balance = Number(msg.balances[assets.quoteAsset.name].available);
-                console.log(assets);
                 assets.baseAsset.balance = Number(
                     msg.balances[assets.baseAsset.name].available
                 );
@@ -293,17 +288,14 @@ async function getOpenOrders() {
             });
         }
     }
-    console.log(orders);
 }
 
 function trimOrders() {
     //remove order statuses we don't need to monitor
-    console.log(orders);
     for (let i = 0, size = orders.length; i < size; i++) {
         if (orders[i].orderStatus != ('NEW' as orderStatus))
             orders.splice(i, 1);
     }
-    console.log(orders);
 }
 
-listenAccount();
+start();
