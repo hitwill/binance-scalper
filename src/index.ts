@@ -274,12 +274,23 @@ async function listenAccount() {
                 let i = orders.findIndex((x) => x.orderId == msg.orderId);
                 if (i == -1) {
                     orders.push(order);
-                }else {
+                } else {
                     orders[i] = order;
                 }
-                console.log(orders);
+                trimOrders();
                 break;
         }
     });
 }
 
+function trimOrders() {
+    //remove order statuses we don't need to monitor
+    console.log(orders);
+    for (let i = 0, size = orders.length; i < size; i++) {
+        if (orders[i].orderStatus != ('NEW' as orderStatus))
+            orders.splice(i, 1);
+    }
+    console.log(orders);
+}
+
+listenAccount();
