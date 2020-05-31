@@ -249,3 +249,17 @@ start();
 //calculate price entry (quartile) and exit (min profit)
 
 //https://mathjs.org/docs/reference/functions/std.html
+async function listenAccount() {
+    client.ws.user((msg : any) => {
+        switch (msg.eventType) {
+            case 'account':
+                assets.baseAsset.balance = Number(msg.balances[assets.baseAsset.name].available);
+                assets.quoteAsset.balance = Number(msg.balances[assets.quoteAsset.name].available);
+                console.log(assets);
+                break;
+            case 'executionReport':
+                break;
+        }
+    });
+}
+
