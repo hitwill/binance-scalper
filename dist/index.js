@@ -9,9 +9,9 @@ const client = binance_api_node_1.default({
     apiSecret: process.env.API_SECRET,
 });
 let priceTicker = []; //hold a list of recent prices
-let minTickerLength = 10; //min number of prices to use for calculation
 let quantile = { upper: Infinity, lower: 0 };
 let findEntry = false;
+let channelLengthMultiple = 2; //multiple of standard dev long channel
 let currentFee = { maker: Infinity, taker: Infinity };
 let assets = {
     quoteAsset: {
@@ -86,24 +86,53 @@ function addPriceToTicker(price) {
 }
 function calcStandardDev() {
     let standardDeviation = 0;
+    let minTickerLength = 3;
+    let finalTickerLength = Infinity;
     let newTicker = []; // we'll resize the ticker to fit the standard dev we can trade in
-    for (let i = 0, size = priceTicker.length; i < size; i++) {
-        newTicker.push(priceTicker[i]);
-        if (i < minTickerLength) {
-            standardDeviation = 0;
+    for (let tickerLength = 1, size = priceTicker.length; tickerLength <= size; tickerLength++) {
+        findEntry = false;
+        newTicker.push(priceTicker[tickerLength - 1]);
+        if (tickerLength < minTickerLength)
             continue;
-        }
-        standardDeviation = mathjs_1.std(newTicker);
+        if (!isEvenlyDistributed(newTicker))
+            continue; //needs to be distributed around mean **over time**
+        standardDeviation = mathjs_1.std(newTicker, 'biased');
         //multiply deviate by 2 because it's one end, middle, then other end
         if (standardDeviation * 2 >= assets.quoteAsset.takeProfitPips) {
-            findEntry = true;
-            break; //ticker is long enought
-        }
-        else {
-            findEntry = false;
+            if (finalTickerLength == Infinity)
+                finalTickerLength = tickerLength * channelLengthMultiple;
+            if (tickerLength >= finalTickerLength) {
+                findEntry = true;
+                break; //ticker is long enough to trust the deviation
+            }
         }
     }
     priceTicker = newTicker; // resize the ticker
+}
+function isEvenlyDistributed(ticker) {
+    //points can not go up in one straight gradient, but
+    let average = mathjs_1.mean(ticker);
+    let normalized;
+    let wasPositive = null;
+    let switched = 0; //number of times values crossed the average
+    let dataPoints = ticker.length;
+    for (let i = 0; i < dataPoints; i++) {
+        let isPositive = null;
+        normalized = ticker[i] - average; // make average 'zero point'
+        if (normalized > 0)
+            isPositive = true;
+        if (normalized < 0)
+            isPositive = false;
+        if (isPositive !== wasPositive)
+            switched++;
+        wasPositive = isPositive;
+    }
+    if ((switched / dataPoints) >= 0.4) {
+        return true;
+    }
+    else {
+        return false;
+    }
 }
 function calcQuantile() {
     quantile.lower = toPrecision(mathjs_1.quantileSeq(priceTicker, 0.01), assets.quoteAsset.precision, false);

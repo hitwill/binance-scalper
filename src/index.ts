@@ -1,4 +1,4 @@
-import { std, quantileSeq } from 'mathjs';
+import { std, quantileSeq, mean } from 'mathjs';
 import * as dotenv from 'dotenv';
 import Binance from 'binance-api-node';
 
@@ -9,9 +9,9 @@ const client = Binance({
 });
 
 let priceTicker: number[] = []; //hold a list of recent prices
-let minTickerLength = 10; //min number of prices to use for calculation
 let quantile: quantile = { upper: Infinity, lower: 0 };
 let findEntry: boolean = false;
+let channelLengthMultiple: number = 2; //multiple of standard dev long channel
 
 let currentFee: fee = { maker: Infinity, taker: Infinity };
 let assets: assets = {
@@ -99,23 +99,56 @@ function addPriceToTicker(price) {
 
 function calcStandardDev() {
     let standardDeviation: number = 0;
+    let minTickerLength: number = 3;
+    let finalTickerLength: number = Infinity;
     let newTicker: number[] = []; // we'll resize the ticker to fit the standard dev we can trade in
-    for (let i = 0, size = priceTicker.length; i < size; i++) {
-        newTicker.push(priceTicker[i]);
-        if (i < minTickerLength) {
-            standardDeviation = 0;
-            continue;
-        }
-        standardDeviation = std(newTicker);
+    for (
+        let tickerLength = 1, size = priceTicker.length;
+        tickerLength <= size;
+        tickerLength++
+    ) {
+        findEntry = false;
+        newTicker.push(priceTicker[tickerLength - 1]);
+        if (tickerLength < minTickerLength) continue;
+        if (!isEvenlyDistributed(newTicker)) continue; //needs to be distributed around mean **over time**
+
+        standardDeviation = std(newTicker, 'biased');
         //multiply deviate by 2 because it's one end, middle, then other end
         if (standardDeviation * 2 >= assets.quoteAsset.takeProfitPips) {
-            findEntry = true;
-            break; //ticker is long enought
-        } else {
-            findEntry = false;
+            if (finalTickerLength == Infinity)
+                finalTickerLength = tickerLength * channelLengthMultiple;
+            if (tickerLength >= finalTickerLength) {
+                findEntry = true;
+                break; //ticker is long enough to trust the deviation
+            }
         }
     }
     priceTicker = newTicker; // resize the ticker
+}
+
+function isEvenlyDistributed(ticker: number[]): boolean {
+    //points can not go up in one straight gradient, but
+    let average: number = mean(ticker);
+    let normalized: number;
+    let wasPositive: boolean | null = null;
+    let switched : number = 0; //number of times values crossed the average
+    let dataPoints : number = ticker.length;
+
+    for (let i = 0; i < dataPoints; i++) {
+        let isPositive: boolean | null = null;
+        normalized = ticker[i] - average; // make average 'zero point'
+        if (normalized > 0) isPositive = true;
+        if (normalized < 0) isPositive = false;
+
+        if(isPositive !== wasPositive) switched++;
+        wasPositive = isPositive;
+    }
+
+    if((switched/dataPoints) >= 0.4) {
+        return true;
+    }else{
+        return false;
+    }
 }
 
 function calcQuantile() {
@@ -177,7 +210,7 @@ function setPosition() {
 
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
-        console.log(trade.price);
+        console.log(Number(trade.price));
         addPriceToTicker(trade.price);
         calcStandardDev();
         calcQuantile();
