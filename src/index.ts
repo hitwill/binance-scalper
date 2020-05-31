@@ -134,8 +134,8 @@ function isEvenlyDistributed(ticker: number[]): boolean {
     let average: number = mean(ticker);
     let normalized: number;
     let wasPositive: boolean | null = null;
-    let switched : number = 0; //number of times values crossed the average
-    let dataPoints : number = ticker.length;
+    let switched: number = 0; //number of times values crossed the average
+    let dataPoints: number = ticker.length;
 
     for (let i = 0; i < dataPoints; i++) {
         let isPositive: boolean | null = null;
@@ -143,13 +143,13 @@ function isEvenlyDistributed(ticker: number[]): boolean {
         if (normalized > 0) isPositive = true;
         if (normalized < 0) isPositive = false;
 
-        if(isPositive !== wasPositive) switched++;
+        if (isPositive !== wasPositive) switched++;
         wasPositive = isPositive;
     }
 
-    if((switched/dataPoints) >= 0.4) {
+    if (switched / dataPoints >= 0.4) {
         return true;
-    }else{
+    } else {
         return false;
     }
 }
