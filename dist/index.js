@@ -40,8 +40,10 @@ async function start() {
     Promise.all([
         getExchangeInfo(),
         getBalances(),
+        getOpenOrders()
     ]).then((values) => {
         assets.quoteAsset.takeProfitPips = calcTakeProfitPips();
+        listenAccount();
         listenMarket(); //start listening
     });
 }
@@ -64,7 +66,7 @@ async function getExchangeInfo() {
     let fees = await client.tradeFee();
     let symbol = getSymbol(exchangeInfo);
     extractFees(fees.tradeFee);
-    extractRules(symbol);
+    console.log(symbol);
 }
 function getSymbol(exchangeInfo) {
     let symbol;
