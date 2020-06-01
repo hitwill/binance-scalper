@@ -1,6 +1,6 @@
 import { std, quantileSeq, mean } from 'mathjs';
 import * as dotenv from 'dotenv';
-import Binance  from 'binance-api-node';
+import Binance from 'binance-api-node';
 
 dotenv.config();
 const client = Binance({
@@ -259,6 +259,11 @@ function findpositionsToExit(
     return entryType;
 }
 
+function getEntryQuantity(): number {
+    //TODO: calculate size based on how much cash we have and...?
+    return 100;
+}
+
 function enterPositions() {
     let takeProfitBuyOrder: number =
         quantile.lower + assets.quoteAsset.takeProfitPips;
@@ -272,9 +277,25 @@ function enterPositions() {
     );
 
     if (entryType.buy) {
+        client.order({
+            symbol: tradingSymbol,
+            side: 'BUY',
+            quantity: getEntryQuantity().toString(),
+            price: quantile.lower.toString(),
+            stopPrice: takeProfitBuyOrder.toString(),
+            type: 'TAKE_PROFIT_LIMIT',
+        });
     }
 
     if (entryType.sell) {
+        client.order({
+            symbol: tradingSymbol,
+            side: 'SELL',
+            quantity: getEntryQuantity().toString(),
+            price: quantile.upper.toString(),
+            stopPrice: takeProfitSellOrder.toString(),
+            type: 'TAKE_PROFIT_LIMIT',
+        });
     }
 }
 
