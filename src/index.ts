@@ -284,10 +284,15 @@ async function listenAccount() {
                 break;
             case 'executionReport':
                 if (msg.symbol != tradingSymbol) return; //not for us
+                
                 let order: order = {
                     orderId: Number(msg.orderId),
                     orderStatus: msg.orderStatus,
+                    orderPrice: Number(msg.price),
+                    orderStopPrice: Number(msg.stopPrice),
+                    orderSide : msg.side as orderSide
                 };
+               
                 let i = orders.findIndex((x) => x.orderId == msg.orderId);
                 if (i == -1) {
                     orders.push(order);
@@ -307,6 +312,9 @@ async function getOpenOrders() {
             orders.push({
                 orderId: Number(openOrders[i].orderId),
                 orderStatus: openOrders[i].status as orderStatus,
+                orderPrice: Number(openOrders[i].price),
+                orderStopPrice: Number(openOrders[i].stopPrice),
+                orderSide : openOrders[i].side as orderSide
             });
         }
     }
@@ -320,4 +328,4 @@ function trimOrders() {
     }
 }
 
-start();
+//start();

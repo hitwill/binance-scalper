@@ -31,4 +31,7 @@ interface assets {
 interface order {
     orderId: number;
     orderStatus: orderStatus;
+    orderSide: orderSide;
+    orderPrice: number;
+    orderStopPrice: number;
 }
