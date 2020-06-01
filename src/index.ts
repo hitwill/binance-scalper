@@ -272,7 +272,7 @@ function getEntryQuantity(side: orderSide, price: number): number {
             break;
     }
 
-    quantity = toPrecision(quantity, assets.baseAsset.precision,true);
+    quantity = toPrecision(quantity, assets.baseAsset.precision, true);
     if (quantity < assets.baseAsset.minQty) quantity = assets.baseAsset.minQty;
     return quantity;
 }
@@ -288,7 +288,7 @@ function enterPositions() {
         takeProfitBuyOrder,
         takeProfitSellOrder
     );
-    
+
     let price: number;
     let quantity: number;
 
@@ -296,20 +296,21 @@ function enterPositions() {
     quantity = getEntryQuantity('BUY' as orderSide, price);
 
     if (entryType.buy && quantity > 0) {
-        client.order({
+        client.orderTest({
             symbol: tradingSymbol,
             side: 'BUY',
             quantity: quantity.toString(),
             price: price.toString(),
             stopPrice: takeProfitBuyOrder.toString(),
             type: 'TAKE_PROFIT_LIMIT',
+            newOrderRespType: 'ACK',
         });
     }
 
     price = quantile.upper;
     quantity = getEntryQuantity('SELL' as orderSide, price);
     if (entryType.sell && quantity > 0) {
-        client.order({
+        client.orderTest({
             symbol: tradingSymbol,
             side: 'SELL',
             quantity: quantity.toString(),
@@ -342,6 +343,7 @@ async function exitUnenteredPositions(orderId: number) {
 
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
+        console.log(trade.price);
         addPriceToTicker(trade.price);
         calcStandardDev();
         calcQuantile();
@@ -381,6 +383,7 @@ async function listenAccount() {
                 } else {
                     orders[i] = order;
                 }
+                console.log(orders);
                 trimOrders();
                 break;
         }
@@ -410,4 +413,4 @@ function trimOrders() {
     }
 }
 
-//start();
+start();

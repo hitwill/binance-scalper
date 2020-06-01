@@ -196,6 +196,8 @@ function calcTakeProfitPips() {
     return minProfit; //we can add rules to increase profit later
 }
 function enterPositions() {
+    exitUnenteredPositions(); //do this conditionally if have to change price of order - 
+    //continue here - place orders based on the quantile - both buy and sell
     let entryType = null;
     if (priceTicker[0] <= quantile.lower) {
         console.log('buy at: ' + priceTicker[0]);
@@ -228,9 +230,11 @@ function listenMarket() {
         addPriceToTicker(trade.price);
         calcStandardDev();
         calcQuantile();
-        exitUnenteredPositions(); //exit unentered positions
         if (findEntry) {
             enterPositions();
+        }
+        else {
+            exitUnenteredPositions(); //exit unentered positions
         }
     });
 }
@@ -247,6 +251,9 @@ async function listenAccount() {
                 let order = {
                     orderId: Number(msg.orderId),
                     orderStatus: msg.orderStatus,
+                    orderPrice: Number(msg.price),
+                    orderStopPrice: Number(msg.stopPrice),
+                    orderSide: msg.side
                 };
                 let i = orders.findIndex((x) => x.orderId == msg.orderId);
                 if (i == -1) {
@@ -267,6 +274,9 @@ async function getOpenOrders() {
             orders.push({
                 orderId: Number(openOrders[i].orderId),
                 orderStatus: openOrders[i].status,
+                orderPrice: Number(openOrders[i].price),
+                orderStopPrice: Number(openOrders[i].stopPrice),
+                orderSide: openOrders[i].side
             });
         }
     }
@@ -274,20 +284,12 @@ async function getOpenOrders() {
 function trimOrders() {
     //remove order statuses we don't need to monitor
     for (let i = 0, size = orders.length; i < size; i++) {
+        console.log(orders);
         if (orders[i].orderStatus != 'NEW')
             orders.splice(i, 1);
     }
-    console.log(orders);
 }
 //start();
-test();
-async function test() {
-    listenAccount();
-    await getOpenOrders();
-    console.log(orders);
-    setTimeout(function () {
-        console.log('listening');
-        exitUnenteredPositions();
-    }, 10000);
-}
+listenAccount();
+getOpenOrders();
 //# sourceMappingURL=index.js.map
