@@ -17,6 +17,7 @@ interface assets {
         tickSize: number;
         takeProfitPips: number;
         balance: number;
+        minNotional: number;
     };
     baseAsset: {
         name: string;

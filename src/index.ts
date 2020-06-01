@@ -28,6 +28,7 @@ let assets: assets = {
         tickSize: 0,
         takeProfitPips: 0,
         balance: null,
+        minNotional: Infinity,
     },
     baseAsset: {
         name: process.env.BASE_ASSET,
@@ -110,14 +111,17 @@ function extractRules(symbol: {
         let filter = symbol.filters[i];
         switch (filter.filterType) {
             case 'LOT_SIZE':
-                assets.baseAsset.minQty = filter.minQty;
-                assets.baseAsset.maxQty = filter.maxQty;
-                assets.baseAsset.stepSize = filter.stepSize;
+                assets.baseAsset.minQty = Number(filter.minQty);
+                assets.baseAsset.maxQty = Number(filter.maxQty);
+                assets.baseAsset.stepSize = Number(filter.stepSize);
                 break;
             case 'PRICE_FILTER':
-                assets.quoteAsset.minPrice = filter.minPrice;
-                assets.quoteAsset.maxPrice = filter.maxPrice;
-                assets.quoteAsset.tickSize = filter.tickSize;
+                assets.quoteAsset.minPrice = Number(filter.minPrice);
+                assets.quoteAsset.maxPrice = Number(filter.maxPrice);
+                assets.quoteAsset.tickSize = Number(filter.tickSize);
+                break;
+            case 'MIN_NOTIONAL':
+                assets.quoteAsset.minNotional = Number(filter.minNotional);
                 break;
         }
     }
@@ -262,23 +266,33 @@ function findpositionsToExit(
 
 function getEntryQuantity(side: orderSide, price: number): number {
     //TODO: check balance and min notional
+    //cross reference api with these rules: https://www.binance.com/en/trade-rule
     let quantity: number = 0;
     switch (side) {
         case 'BUY' as orderSide:
             quantity =
-                (assets.quoteAsset.balance * spendFractionPerTrade) / price;
+                Math.max(
+                    assets.quoteAsset.minNotional,
+                    assets.quoteAsset.balance * spendFractionPerTrade
+                ) / price;
             break;
         case 'SELL' as orderSide:
-            quantity = assets.baseAsset.balance * spendFractionPerTrade * price;
+            quantity =
+                Math.max(
+                    assets.quoteAsset.minNotional,
+                    assets.baseAsset.balance * spendFractionPerTrade
+                ) * price;
             break;
     }
 
     quantity = toPrecision(quantity, assets.baseAsset.precision, true);
+   
     if (quantity < assets.baseAsset.minQty) quantity = assets.baseAsset.minQty;
     return quantity;
 }
 
 function enterPositions() {
+    //TODO: possible to set buy order with stop loss, then close it ourself after certain pips
     let takeProfitBuyOrder: number =
         quantile.lower + assets.quoteAsset.takeProfitPips;
 

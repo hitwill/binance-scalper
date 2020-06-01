@@ -10,6 +10,7 @@ const client = binance_api_node_1.default({
 });
 //config vars
 let channelLengthMultiple = 2; //multiple of standard dev long channel
+let spendFractionPerTrade = 0.01;
 //end config
 let priceTicker = []; //hold a list of recent prices
 let quantile = { upper: Infinity, lower: 0 };
@@ -25,6 +26,7 @@ let assets = {
         tickSize: 0,
         takeProfitPips: 0,
         balance: null,
+        minNotional: Infinity,
     },
     baseAsset: {
         name: process.env.BASE_ASSET,
@@ -94,14 +96,17 @@ function extractRules(symbol) {
         let filter = symbol.filters[i];
         switch (filter.filterType) {
             case 'LOT_SIZE':
-                assets.baseAsset.minQty = filter.minQty;
-                assets.baseAsset.maxQty = filter.maxQty;
-                assets.baseAsset.stepSize = filter.stepSize;
+                assets.baseAsset.minQty = Number(filter.minQty);
+                assets.baseAsset.maxQty = Number(filter.maxQty);
+                assets.baseAsset.stepSize = Number(filter.stepSize);
                 break;
             case 'PRICE_FILTER':
-                assets.quoteAsset.minPrice = filter.minPrice;
-                assets.quoteAsset.maxPrice = filter.maxPrice;
-                assets.quoteAsset.tickSize = filter.tickSize;
+                assets.quoteAsset.minPrice = Number(filter.minPrice);
+                assets.quoteAsset.maxPrice = Number(filter.maxPrice);
+                assets.quoteAsset.tickSize = Number(filter.tickSize);
+                break;
+            case 'MIN_NOTIONAL':
+                assets.quoteAsset.minNotional = Number(filter.minNotional);
                 break;
         }
     }
@@ -195,38 +200,108 @@ function calcTakeProfitPips() {
     let minProfit = calcMinProfitPips(); //our takeProfit is just the mininimum profit we can get (scalping)
     return minProfit; //we can add rules to increase profit later
 }
-function enterPositions() {
-    exitUnenteredPositions(); //do this conditionally if have to change price of order - 
-    //continue here - place orders based on the quantile - both buy and sell
-    let entryType = null;
-    if (priceTicker[0] <= quantile.lower) {
-        console.log('buy at: ' + priceTicker[0]);
-        entryType = 'BUY';
+function findpositionsToExit(takeProfitBuyOrder, takeProfitSellOrder) {
+    //exit orders that are disimilar to next ones we'll make
+    let entryType = { buy: true, sell: true };
+    for (let i = 0, size = orders.length; i < size; i++) {
+        switch (orders[i].orderSide) {
+            case 'BUY':
+                if (orders[i].orderPrice != quantile.lower ||
+                    orders[i].orderStopPrice != takeProfitBuyOrder) {
+                    exitUnenteredPositions(orders[i].orderId);
+                }
+                else {
+                    entryType.buy = false;
+                }
+                break;
+            case 'SELL':
+                if (orders[i].orderPrice != quantile.upper ||
+                    orders[i].orderStopPrice != takeProfitSellOrder) {
+                    exitUnenteredPositions(orders[i].orderId);
+                }
+                else {
+                    entryType.sell = false;
+                }
+                break;
+        }
     }
-    if (priceTicker[0] >= quantile.upper) {
-        console.log('sell at: ' + priceTicker[0]);
-        entryType = 'SELL';
+    return entryType;
+}
+function getEntryQuantity(side, price) {
+    //TODO: check balance and min notional
+    let quantity = 0;
+    switch (side) {
+        case 'BUY':
+            quantity =
+                Math.max(assets.quoteAsset.minNotional, assets.quoteAsset.balance * spendFractionPerTrade) / price;
+            break;
+        case 'SELL':
+            quantity =
+                Math.max(assets.quoteAsset.minNotional, assets.baseAsset.balance * spendFractionPerTrade) * price;
+            break;
+    }
+    quantity = toPrecision(quantity, assets.baseAsset.precision, true);
+    console.log('quantity', quantity);
+    if (quantity < assets.baseAsset.minQty)
+        quantity = assets.baseAsset.minQty;
+    return quantity;
+}
+function enterPositions() {
+    let takeProfitBuyOrder = quantile.lower + assets.quoteAsset.takeProfitPips;
+    let takeProfitSellOrder = quantile.upper - assets.quoteAsset.takeProfitPips;
+    let entryType = findpositionsToExit(takeProfitBuyOrder, takeProfitSellOrder);
+    let price;
+    let quantity;
+    price = quantile.lower;
+    quantity = getEntryQuantity('BUY', price);
+    console.log(price);
+    if (entryType.buy && quantity > 0 && price >= assets.quoteAsset.minPrice) {
+        client.orderTest({
+            symbol: tradingSymbol,
+            side: 'BUY',
+            quantity: quantity.toString(),
+            price: price.toString(),
+            stopPrice: takeProfitBuyOrder.toString(),
+            type: 'TAKE_PROFIT_LIMIT',
+            newOrderRespType: 'ACK',
+        });
+    }
+    price = quantile.upper;
+    console.log(price);
+    quantity = getEntryQuantity('SELL', price);
+    if (entryType.sell && quantity > 0 && price >= assets.quoteAsset.minPrice) {
+        client.orderTest({
+            symbol: tradingSymbol,
+            side: 'SELL',
+            quantity: quantity.toString(),
+            price: price.toString(),
+            stopPrice: takeProfitSellOrder.toString(),
+            type: 'TAKE_PROFIT_LIMIT',
+        });
     }
 }
 function getUnenteredPositions() {
     let toExit = [];
     for (let i = 0, size = orders.length; i < size; i++) {
         if (orders[i].orderStatus == 'NEW')
-            toExit.push(orders[i].orderId);
+            toExit.push(orders[i]);
     }
     return toExit;
 }
-async function exitUnenteredPositions() {
+async function exitUnenteredPositions(orderId) {
     let toExit = getUnenteredPositions(); //we store here - because the orders array will be changing through webhooks as we cancel
     for (let i = 0, size = toExit.length; i < size; i++) {
+        if (orderId !== null && toExit[i].orderId != orderId)
+            continue;
         client.cancelOrder({
             symbol: tradingSymbol,
-            orderId: toExit[i],
+            orderId: toExit[i].orderId,
         });
     }
 }
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
+        console.log(trade.price);
         addPriceToTicker(trade.price);
         calcStandardDev();
         calcQuantile();
@@ -234,7 +309,7 @@ function listenMarket() {
             enterPositions();
         }
         else {
-            exitUnenteredPositions(); //exit unentered positions
+            exitUnenteredPositions(null); //exit all unentered positions
         }
     });
 }
@@ -253,7 +328,7 @@ async function listenAccount() {
                     orderStatus: msg.orderStatus,
                     orderPrice: Number(msg.price),
                     orderStopPrice: Number(msg.stopPrice),
-                    orderSide: msg.side
+                    orderSide: msg.side,
                 };
                 let i = orders.findIndex((x) => x.orderId == msg.orderId);
                 if (i == -1) {
@@ -262,6 +337,7 @@ async function listenAccount() {
                 else {
                     orders[i] = order;
                 }
+                console.log(orders);
                 trimOrders();
                 break;
         }
@@ -276,7 +352,7 @@ async function getOpenOrders() {
                 orderStatus: openOrders[i].status,
                 orderPrice: Number(openOrders[i].price),
                 orderStopPrice: Number(openOrders[i].stopPrice),
-                orderSide: openOrders[i].side
+                orderSide: openOrders[i].side,
             });
         }
     }
@@ -284,12 +360,9 @@ async function getOpenOrders() {
 function trimOrders() {
     //remove order statuses we don't need to monitor
     for (let i = 0, size = orders.length; i < size; i++) {
-        console.log(orders);
         if (orders[i].orderStatus != 'NEW')
             orders.splice(i, 1);
     }
 }
-//start();
-listenAccount();
-getOpenOrders();
+start();
 //# sourceMappingURL=index.js.map
