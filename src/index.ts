@@ -261,6 +261,7 @@ function findpositionsToExit(
 }
 
 function getEntryQuantity(side: orderSide, price: number): number {
+    //TODO: check balance and min notional
     let quantity: number = 0;
     switch (side) {
         case 'BUY' as orderSide:
@@ -294,8 +295,8 @@ function enterPositions() {
 
     price = quantile.lower;
     quantity = getEntryQuantity('BUY' as orderSide, price);
-
-    if (entryType.buy && quantity > 0) {
+    console.log(price);
+    if (entryType.buy && quantity > 0 && price >= assets.quoteAsset.minPrice) {
         client.orderTest({
             symbol: tradingSymbol,
             side: 'BUY',
@@ -308,8 +309,9 @@ function enterPositions() {
     }
 
     price = quantile.upper;
+    console.log(price);
     quantity = getEntryQuantity('SELL' as orderSide, price);
-    if (entryType.sell && quantity > 0) {
+    if (entryType.sell && quantity > 0 && price >= assets.quoteAsset.minPrice) {
         client.orderTest({
             symbol: tradingSymbol,
             side: 'SELL',
