@@ -1,7 +1,6 @@
 import { std, quantileSeq, mean } from 'mathjs';
 import * as dotenv from 'dotenv';
-import Binance, { OrderStatus } from 'binance-api-node';
-import { OrderSide } from 'binance-api-node';
+import Binance  from 'binance-api-node';
 
 dotenv.config();
 const client = Binance({
