@@ -10,6 +10,7 @@ const client = Binance({
 
 //config vars
 let channelLengthMultiple: number = 2; //multiple of standard dev long channel
+let spendFractionPerTrade: number = 0.01;
 //end config
 
 let priceTicker: number[] = []; //hold a list of recent prices
@@ -259,9 +260,21 @@ function findpositionsToExit(
     return entryType;
 }
 
-function getEntryQuantity(): number {
-    //TODO: calculate size based on how much cash we have and...?
-    return 100;
+function getEntryQuantity(side: orderSide, price: number): number {
+    let quantity: number = 0;
+    switch (side) {
+        case 'BUY' as orderSide:
+            quantity =
+                (assets.quoteAsset.balance * spendFractionPerTrade) / price;
+            break;
+        case 'SELL' as orderSide:
+            quantity = assets.baseAsset.balance * spendFractionPerTrade * price;
+            break;
+    }
+
+    quantity = toPrecision(quantity, assets.baseAsset.precision,true);
+    if (quantity < assets.baseAsset.minQty) quantity = assets.baseAsset.minQty;
+    return quantity;
 }
 
 function enterPositions() {
@@ -275,24 +288,32 @@ function enterPositions() {
         takeProfitBuyOrder,
         takeProfitSellOrder
     );
+    
+    let price: number;
+    let quantity: number;
 
-    if (entryType.buy) {
+    price = quantile.lower;
+    quantity = getEntryQuantity('BUY' as orderSide, price);
+
+    if (entryType.buy && quantity > 0) {
         client.order({
             symbol: tradingSymbol,
             side: 'BUY',
-            quantity: getEntryQuantity().toString(),
-            price: quantile.lower.toString(),
+            quantity: quantity.toString(),
+            price: price.toString(),
             stopPrice: takeProfitBuyOrder.toString(),
             type: 'TAKE_PROFIT_LIMIT',
         });
     }
 
-    if (entryType.sell) {
+    price = quantile.upper;
+    quantity = getEntryQuantity('SELL' as orderSide, price);
+    if (entryType.sell && quantity > 0) {
         client.order({
             symbol: tradingSymbol,
             side: 'SELL',
-            quantity: getEntryQuantity().toString(),
-            price: quantile.upper.toString(),
+            quantity: quantity.toString(),
+            price: price.toString(),
             stopPrice: takeProfitSellOrder.toString(),
             type: 'TAKE_PROFIT_LIMIT',
         });
