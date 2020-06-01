@@ -35,3 +35,9 @@ interface order {
     orderPrice: number;
     orderStopPrice: number;
 }
+
+
+interface entryType {
+    buy: boolean;
+    sell: boolean;
+}

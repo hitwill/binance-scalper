@@ -1,6 +1,7 @@
 import { std, quantileSeq, mean } from 'mathjs';
 import * as dotenv from 'dotenv';
 import Binance, { OrderStatus } from 'binance-api-node';
+import { OrderSide } from 'binance-api-node';
 
 dotenv.config();
 const client = Binance({
@@ -226,35 +227,74 @@ function calcTakeProfitPips() {
     return minProfit; //we can add rules to increase profit later
 }
 
+function findpositionsToExit(
+    takeProfitBuyOrder: number,
+    takeProfitSellOrder: number
+): entryType {
+    //exit orders that are disimilar to next ones we'll make
+    let entryType: entryType = { buy: true, sell: true };
+    for (let i = 0, size = orders.length; i < size; i++) {
+        switch (orders[i].orderSide) {
+            case 'BUY' as orderSide:
+                if (
+                    orders[i].orderPrice != quantile.lower ||
+                    orders[i].orderStopPrice != takeProfitBuyOrder
+                ) {
+                    exitUnenteredPositions(orders[i].orderId);
+                } else {
+                    entryType.buy = false;
+                }
+                break;
+            case 'SELL' as orderSide:
+                if (
+                    orders[i].orderPrice != quantile.upper ||
+                    orders[i].orderStopPrice != takeProfitSellOrder
+                ) {
+                    exitUnenteredPositions(orders[i].orderId);
+                } else {
+                    entryType.sell = false;
+                }
+                break;
+        }
+    }
+    return entryType;
+}
+
 function enterPositions() {
-    //continue here - place orders based on the quantile - both buy and sell
-    let entryType: string | null = null;
-    if (priceTicker[0] <= quantile.lower) {
-        console.log('buy at: ' + priceTicker[0]);
-        entryType = 'BUY';
+    let takeProfitBuyOrder: number =
+        quantile.lower + assets.quoteAsset.takeProfitPips;
+
+    let takeProfitSellOrder: number =
+        quantile.upper - assets.quoteAsset.takeProfitPips;
+
+    let entryType: entryType = findpositionsToExit(
+        takeProfitBuyOrder,
+        takeProfitSellOrder
+    );
+
+    if (entryType.buy) {
     }
 
-    if (priceTicker[0] >= quantile.upper) {
-        console.log('sell at: ' + priceTicker[0]);
-        entryType = 'SELL';
+    if (entryType.sell) {
     }
 }
 
 function getUnenteredPositions() {
-    let toExit = [];
+    let toExit: order[] = [];
     for (let i = 0, size = orders.length; i < size; i++) {
         if (orders[i].orderStatus == ('NEW' as orderStatus))
-            toExit.push(orders[i].orderId);
+            toExit.push(orders[i]);
     }
     return toExit;
 }
 
-async function exitUnenteredPositions() {
+async function exitUnenteredPositions(orderId: number) {
     let toExit = getUnenteredPositions(); //we store here - because the orders array will be changing through webhooks as we cancel
     for (let i = 0, size = toExit.length; i < size; i++) {
+        if (orderId !== null && toExit[i].orderId != orderId) continue;
         client.cancelOrder({
             symbol: tradingSymbol,
-            orderId: toExit[i],
+            orderId: toExit[i].orderId,
         });
     }
 }
@@ -264,9 +304,10 @@ function listenMarket() {
         addPriceToTicker(trade.price);
         calcStandardDev();
         calcQuantile();
-        exitUnenteredPositions(); //exit unentered positions
         if (findEntry) {
             enterPositions();
+        } else {
+            exitUnenteredPositions(null); //exit all unentered positions
         }
     });
 }
@@ -284,15 +325,15 @@ async function listenAccount() {
                 break;
             case 'executionReport':
                 if (msg.symbol != tradingSymbol) return; //not for us
-                
+
                 let order: order = {
                     orderId: Number(msg.orderId),
                     orderStatus: msg.orderStatus,
                     orderPrice: Number(msg.price),
                     orderStopPrice: Number(msg.stopPrice),
-                    orderSide : msg.side as orderSide
+                    orderSide: msg.side as orderSide,
                 };
-               
+
                 let i = orders.findIndex((x) => x.orderId == msg.orderId);
                 if (i == -1) {
                     orders.push(order);
@@ -314,7 +355,7 @@ async function getOpenOrders() {
                 orderStatus: openOrders[i].status as orderStatus,
                 orderPrice: Number(openOrders[i].price),
                 orderStopPrice: Number(openOrders[i].stopPrice),
-                orderSide : openOrders[i].side as orderSide
+                orderSide: openOrders[i].side as orderSide,
             });
         }
     }
