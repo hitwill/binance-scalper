@@ -222,7 +222,11 @@ function calcMinProfitPips() {
     //formula below comes from: profit = volume(sellingPrice = buyingPrice).((100-fee)/100)
     let profit = assets.quoteAsset.tickSize; //just one pip
     let pips = (100 * profit) / (100 - currentFee.taker); //convert to pips
-    pips = toPrecision(pips, assets.quoteAsset.precision, true); //set precission and round it up
+    pips = toPrecision(
+        pips,
+        assets.quoteAsset.tickSize.toString().split('.')[1].length,
+        true
+    ); //set precission and round it up
     return pips;
 }
 
@@ -265,74 +269,107 @@ function findpositionsToExit(
 }
 
 function getEntryQuantity(side: orderSide, price: number): number {
-    //TODO: check balance and min notional
     //cross reference api with these rules: https://www.binance.com/en/trade-rule
     let quantity: number = 0;
     switch (side) {
         case 'BUY' as orderSide:
             quantity =
-                Math.max(
-                    assets.quoteAsset.minNotional,
-                    assets.quoteAsset.balance * spendFractionPerTrade
-                ) / price;
+                (assets.quoteAsset.balance * spendFractionPerTrade) / price;
             break;
         case 'SELL' as orderSide:
-            quantity =
-                Math.max(
-                    assets.quoteAsset.minNotional,
-                    assets.baseAsset.balance * spendFractionPerTrade
-                ) * price;
+            quantity = assets.baseAsset.balance * spendFractionPerTrade;
             break;
     }
 
-    quantity = toPrecision(quantity, assets.baseAsset.precision, true);
-   
+    if (quantity * price < assets.quoteAsset.minNotional) {
+        quantity = assets.quoteAsset.minNotional / price;
+    }
+    let significantDigits = assets.baseAsset.stepSize.toString().split('.')[1]
+        .length;
+    quantity = toPrecision(quantity, significantDigits, true);
+    quantity += assets.baseAsset.stepSize; //in case rounding brought it slightly down
     if (quantity < assets.baseAsset.minQty) quantity = assets.baseAsset.minQty;
-    return quantity;
+    if (quantity > assets.baseAsset.maxQty) quantity = assets.baseAsset.maxQty;
+
+    let totalCost = quantity * price;
+    if (totalCost)
+        if (isAffordable(side, totalCost)) {
+            return quantity;
+        } else {
+            return 0;
+        }
 }
 
-function enterPositions() {
-    //TODO: possible to set buy order with stop loss, then close it ourself after certain pips
-    let takeProfitBuyOrder: number =
-        quantile.lower + assets.quoteAsset.takeProfitPips;
+function isAffordable(side: orderSide, cost: number): boolean {
+    switch (side) {
+        case 'BUY' as orderSide:
+            if (cost > assets.quoteAsset.balance) return false;
+            break;
+        case 'SELL' as orderSide:
+            if (cost > assets.baseAsset.balance) return false;
+            break;
+    }
+    return true;
+}
 
-    let takeProfitSellOrder: number =
-        quantile.upper - assets.quoteAsset.takeProfitPips;
+ function enterPositions() {
+    //TODO: possible to set buy order with stop loss, then close it ourself after certain pips
+    let quantity: number;
+
+    let significantDigits = assets.quoteAsset.tickSize.toString().split('.')[1]
+        .length;
+    let priceBuy = toPrecision(quantile.lower, significantDigits, false);
+    let priceSell = toPrecision(quantile.upper, significantDigits, false);
+
+    let takeProfitBuyOrder: number = toPrecision(
+        priceBuy + assets.quoteAsset.takeProfitPips,
+        significantDigits,
+        true
+    );
+
+    let takeProfitSellOrder: number = toPrecision(
+        priceSell - assets.quoteAsset.takeProfitPips,
+        significantDigits,
+        false
+    ); //TODO: force round down
 
     let entryType: entryType = findpositionsToExit(
         takeProfitBuyOrder,
         takeProfitSellOrder
     );
 
-    let price: number;
-    let quantity: number;
-
-    price = quantile.lower;
-    quantity = getEntryQuantity('BUY' as orderSide, price);
-    console.log(price);
-    if (entryType.buy && quantity > 0 && price >= assets.quoteAsset.minPrice) {
+    quantity = getEntryQuantity('BUY' as orderSide, priceBuy);
+    if (
+        entryType.buy &&
+        quantity > 0 &&
+        priceBuy >= assets.quoteAsset.minPrice
+    ) {
+        console.log([priceBuy, takeProfitBuyOrder, quantity, priceBuy*quantity, assets.quoteAsset.minNotional]);//
         client.orderTest({
             symbol: tradingSymbol,
             side: 'BUY',
             quantity: quantity.toString(),
-            price: price.toString(),
+            price: priceBuy.toString(),
             stopPrice: takeProfitBuyOrder.toString(),
             type: 'TAKE_PROFIT_LIMIT',
             newOrderRespType: 'ACK',
         });
     }
 
-    price = quantile.upper;
-    console.log(price);
-    quantity = getEntryQuantity('SELL' as orderSide, price);
-    if (entryType.sell && quantity > 0 && price >= assets.quoteAsset.minPrice) {
+    quantity = getEntryQuantity('SELL' as orderSide, priceSell);
+    if (
+        entryType.sell &&
+        quantity > 0 &&
+        priceSell >= assets.quoteAsset.minPrice
+    ) {
         client.orderTest({
             symbol: tradingSymbol,
             side: 'SELL',
             quantity: quantity.toString(),
-            price: price.toString(),
+            price: priceSell.toString(),
             stopPrice: takeProfitSellOrder.toString(),
             type: 'TAKE_PROFIT_LIMIT',
+            newOrderRespType: 'ACK',
         });
     }
 }
@@ -359,7 +396,6 @@ async function exitUnenteredPositions(orderId: number) {
 
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
-        console.log(trade.price);
         addPriceToTicker(trade.price);
         calcStandardDev();
         calcQuantile();
