@@ -165,27 +165,32 @@ function isEvenlyDistributed(ticker) {
     }
 }
 function calcQuantile() {
-    quantile.lower = toPrecision(mathjs_1.quantileSeq(priceTicker, 0.01), assets.quoteAsset.precision, false);
-    quantile.upper = toPrecision(mathjs_1.quantileSeq(priceTicker, 0.99), assets.quoteAsset.precision, false);
+    quantile.lower = toPrecision(mathjs_1.quantileSeq(priceTicker, 0.01), assets.quoteAsset.precision, 'DOWN');
+    quantile.upper = toPrecision(mathjs_1.quantileSeq(priceTicker, 0.99), assets.quoteAsset.precision, 'UP');
 }
-function toPrecision(num, digits, roundUpwards) {
+function toPrecision(num, digits, roundType) {
     let precise;
-    if (roundUpwards == true) {
-        let tail;
-        let str = String(num);
-        let position = str.indexOf('.') + digits + 1;
-        tail = Number(str.slice(position, position + 1));
-        if (tail > 0) {
-            precise =
-                Number(str.slice(0, position)) +
-                    Number('0.'.padEnd(digits + 1, '0') + '1');
-        }
-        else {
-            precise = Number(str.slice(0, position));
-        }
-    }
-    else {
-        precise = Number(Number(num).toFixed(digits)); //round as normail
+    let str = String(num);
+    let tail;
+    let lastDigit = str.indexOf('.') + digits + 1;
+    tail = Number(str.slice(lastDigit, lastDigit + 1));
+    switch (roundType) {
+        case 'UP':
+            if (tail > 0) {
+                precise =
+                    Number(str.slice(0, lastDigit)) +
+                        Number('0.'.padEnd(digits + 1, '0') + '1');
+            }
+            else {
+                precise = Number(str.slice(0, lastDigit));
+            }
+            break;
+        case 'DOWN':
+            precise = Number(str.slice(0, lastDigit));
+            break;
+        case 'NORMAL':
+            precise = Number(Number(num).toFixed(digits)); //round as normail
+            break;
     }
     return precise;
 }
@@ -193,7 +198,7 @@ function calcMinProfitPips() {
     //formula below comes from: profit = volume(sellingPrice = buyingPrice).((100-fee)/100)
     let profit = assets.quoteAsset.tickSize; //just one pip
     let pips = (100 * profit) / (100 - currentFee.taker); //convert to pips
-    pips = toPrecision(pips, assets.quoteAsset.tickSize.toString().split('.')[1].length, true); //set precission and round it up
+    pips = toPrecision(pips, assets.quoteAsset.tickSize.toString().split('.')[1].length, 'UP'); //set precission and round it up
     return pips;
 }
 function calcTakeProfitPips() {
@@ -244,7 +249,7 @@ function getEntryQuantity(side, price) {
     }
     let significantDigits = assets.baseAsset.stepSize.toString().split('.')[1]
         .length;
-    quantity = toPrecision(quantity, significantDigits, true);
+    quantity = toPrecision(quantity, significantDigits, 'UP');
     quantity += assets.baseAsset.stepSize; //in case rounding brought it slightly down
     if (quantity < assets.baseAsset.minQty)
         quantity = assets.baseAsset.minQty;
@@ -277,23 +282,23 @@ function enterPositions() {
     let quantity;
     let significantDigits = assets.quoteAsset.tickSize.toString().split('.')[1]
         .length;
-    let priceBuy = toPrecision(quantile.lower, significantDigits, false);
-    let priceSell = toPrecision(quantile.upper, significantDigits, false);
-    let takeProfitBuyOrder = toPrecision(priceBuy + assets.quoteAsset.takeProfitPips, significantDigits, true);
-    let takeProfitSellOrder = toPrecision(priceSell - assets.quoteAsset.takeProfitPips, significantDigits, false); //TODO: force round down
+    let priceBuy = toPrecision(quantile.lower, significantDigits, 'DOWN');
+    let priceSell = toPrecision(quantile.upper, significantDigits, 'UP');
+    let takeProfitBuyOrder = toPrecision(priceBuy + assets.quoteAsset.takeProfitPips, significantDigits, 'UP');
+    let takeProfitSellOrder = toPrecision(priceSell - assets.quoteAsset.takeProfitPips, significantDigits, 'DOWN');
     let entryType = findpositionsToExit(takeProfitBuyOrder, takeProfitSellOrder);
     quantity = getEntryQuantity('BUY', priceBuy);
     if (entryType.buy &&
         quantity > 0 &&
         priceBuy >= assets.quoteAsset.minPrice) {
-        console.log([priceBuy, takeProfitBuyOrder, quantity, priceBuy * quantity, assets.quoteAsset.minNotional]); //
-        client.orderTest({
+        client.order({
             symbol: tradingSymbol,
             side: 'BUY',
             quantity: quantity.toString(),
             price: priceBuy.toString(),
             stopPrice: takeProfitBuyOrder.toString(),
-            type: 'STOP_LOSS_LIMIT',
+            type: 'TAKE_PROFIT_LIMIT',
+            timeInForce: 'GTC',
             newOrderRespType: 'ACK',
         });
     }
@@ -301,13 +306,14 @@ function enterPositions() {
     if (entryType.sell &&
         quantity > 0 &&
         priceSell >= assets.quoteAsset.minPrice) {
-        client.orderTest({
+        client.order({
             symbol: tradingSymbol,
             side: 'SELL',
             quantity: quantity.toString(),
             price: priceSell.toString(),
             stopPrice: takeProfitSellOrder.toString(),
-            type: 'STOP_LOSS_LIMIT',
+            type: 'TAKE_PROFIT_LIMIT',
+            timeInForce: 'GTC',
             newOrderRespType: 'ACK',
         });
     }

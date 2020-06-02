@@ -352,20 +352,15 @@ function enterPositions() {
         quantity > 0 &&
         priceBuy >= assets.quoteAsset.minPrice
     ) {
-        console.log([
-            priceBuy,
-            takeProfitBuyOrder,
-            quantity,
-            priceBuy * quantity,
-            assets.quoteAsset.minNotional,
-        ]); //
-        client.orderTest({
+       
+        client.order({
             symbol: tradingSymbol,
             side: 'BUY',
             quantity: quantity.toString(),
             price: priceBuy.toString(),
             stopPrice: takeProfitBuyOrder.toString(),
             type: 'TAKE_PROFIT_LIMIT',
+            timeInForce: 'GTC',
             newOrderRespType: 'ACK',
         });
     }
@@ -376,13 +371,14 @@ function enterPositions() {
         quantity > 0 &&
         priceSell >= assets.quoteAsset.minPrice
     ) {
-        client.orderTest({
+        client.order({
             symbol: tradingSymbol,
             side: 'SELL',
             quantity: quantity.toString(),
             price: priceSell.toString(),
             stopPrice: takeProfitSellOrder.toString(),
             type: 'TAKE_PROFIT_LIMIT',
+            timeInForce: 'GTC',
             newOrderRespType: 'ACK',
         });
     }
@@ -471,6 +467,7 @@ async function getOpenOrders() {
     }
 }
 
+//TODO: FIX FOR BUG itterate better since also changing array
 function trimOrders() {
     //remove order statuses we don't need to monitor
     for (let i = 0, size = orders.length; i < size; i++) {
