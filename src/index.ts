@@ -189,32 +189,40 @@ function calcQuantile() {
     quantile.lower = toPrecision(
         quantileSeq(priceTicker, 0.01) as number,
         assets.quoteAsset.precision,
-        false
+        'DOWN' as roundType
     );
     quantile.upper = toPrecision(
         quantileSeq(priceTicker, 0.99) as number,
         assets.quoteAsset.precision,
-        false
+        'UP' as roundType
     );
 }
 
-function toPrecision(num: number, digits: number, roundUpwards: boolean) {
+function toPrecision(num: number, digits: number, roundType: roundType) {
     let precise: number;
-    if (roundUpwards == true) {
-        let tail: number;
-        let str = String(num);
-        let position: number = str.indexOf('.') + digits + 1;
-        tail = Number(str.slice(position, position + 1));
-        if (tail > 0) {
-            precise =
-                Number(str.slice(0, position)) +
-                Number('0.'.padEnd(digits + 1, '0') + '1');
-        } else {
-            precise = Number(str.slice(0, position));
-        }
-    } else {
-        precise = Number(Number(num).toFixed(digits)); //round as normail
+    let str = String(num);
+    let tail: number;
+    let lastDigit = str.indexOf('.') + digits + 1;
+    tail = Number(str.slice(lastDigit, lastDigit + 1));
+    switch (roundType) {
+        case 'UP' as roundType:
+            if (tail > 0) {
+                precise =
+                    Number(str.slice(0, lastDigit)) +
+                    Number('0.'.padEnd(digits + 1, '0') + '1');
+            } else {
+                precise = Number(str.slice(0, lastDigit));
+            }
+            break;
+        case 'DOWN' as roundType:
+            precise = Number(str.slice(0, lastDigit));
+            break;
+        case 'NORMAL' as roundType:
+            precise = Number(Number(num).toFixed(digits)); //round as normail
+
+            break;
     }
+
     return precise;
 }
 
@@ -225,7 +233,7 @@ function calcMinProfitPips() {
     pips = toPrecision(
         pips,
         assets.quoteAsset.tickSize.toString().split('.')[1].length,
-        true
+        'UP' as roundType
     ); //set precission and round it up
     return pips;
 }
@@ -286,7 +294,7 @@ function getEntryQuantity(side: orderSide, price: number): number {
     }
     let significantDigits = assets.baseAsset.stepSize.toString().split('.')[1]
         .length;
-    quantity = toPrecision(quantity, significantDigits, true);
+    quantity = toPrecision(quantity, significantDigits, 'UP' as roundType);
     quantity += assets.baseAsset.stepSize; //in case rounding brought it slightly down
     if (quantity < assets.baseAsset.minQty) quantity = assets.baseAsset.minQty;
     if (quantity > assets.baseAsset.maxQty) quantity = assets.baseAsset.maxQty;
@@ -312,26 +320,26 @@ function isAffordable(side: orderSide, cost: number): boolean {
     return true;
 }
 
- function enterPositions() {
+function enterPositions() {
     //TODO: possible to set buy order with stop loss, then close it ourself after certain pips
     let quantity: number;
 
     let significantDigits = assets.quoteAsset.tickSize.toString().split('.')[1]
         .length;
-    let priceBuy = toPrecision(quantile.lower, significantDigits, false);
-    let priceSell = toPrecision(quantile.upper, significantDigits, false);
+    let priceBuy = toPrecision(quantile.lower, significantDigits, 'DOWN' as roundType);
+    let priceSell = toPrecision(quantile.upper, significantDigits, 'UP' as roundType);
 
     let takeProfitBuyOrder: number = toPrecision(
         priceBuy + assets.quoteAsset.takeProfitPips,
         significantDigits,
-        true
+        'UP' as roundType
     );
 
     let takeProfitSellOrder: number = toPrecision(
         priceSell - assets.quoteAsset.takeProfitPips,
         significantDigits,
-        false
-    ); //TODO: force round down
+        'DOWN' as roundType
+    ); 
 
     let entryType: entryType = findpositionsToExit(
         takeProfitBuyOrder,
@@ -344,7 +352,13 @@ function isAffordable(side: orderSide, cost: number): boolean {
         quantity > 0 &&
         priceBuy >= assets.quoteAsset.minPrice
     ) {
-        console.log([priceBuy, takeProfitBuyOrder, quantity, priceBuy*quantity, assets.quoteAsset.minNotional]);//
+        console.log([
+            priceBuy,
+            takeProfitBuyOrder,
+            quantity,
+            priceBuy * quantity,
+            assets.quoteAsset.minNotional,
+        ]); //
         client.orderTest({
             symbol: tradingSymbol,
             side: 'BUY',
