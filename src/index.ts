@@ -222,7 +222,8 @@ function toPrecision(num: number, digits: number, roundType: roundType) {
 
             break;
     }
-
+    //now we have a clean number - we make sure it's trimmed properly
+    precise = Number(precise.toFixed(digits)); //needed to prevent something like 0.1 + 0.2 in js
     return precise;
 }
 
@@ -321,13 +322,20 @@ function isAffordable(side: orderSide, cost: number): boolean {
 }
 
 function enterPositions() {
-    //TODO: possible to set buy order with stop loss, then close it ourself after certain pips
     let quantity: number;
 
     let significantDigits = assets.quoteAsset.tickSize.toString().split('.')[1]
         .length;
-    let priceBuy = toPrecision(quantile.lower, significantDigits, 'DOWN' as roundType);
-    let priceSell = toPrecision(quantile.upper, significantDigits, 'UP' as roundType);
+    let priceBuy = toPrecision(
+        quantile.lower,
+        significantDigits,
+        'DOWN' as roundType
+    );
+    let priceSell = toPrecision(
+        quantile.upper,
+        significantDigits,
+        'UP' as roundType
+    );
 
     let takeProfitBuyOrder: number = toPrecision(
         priceBuy + assets.quoteAsset.takeProfitPips,
@@ -339,7 +347,7 @@ function enterPositions() {
         priceSell - assets.quoteAsset.takeProfitPips,
         significantDigits,
         'DOWN' as roundType
-    ); 
+    );
 
     let entryType: entryType = findpositionsToExit(
         takeProfitBuyOrder,
@@ -352,14 +360,18 @@ function enterPositions() {
         quantity > 0 &&
         priceBuy >= assets.quoteAsset.minPrice
     ) {
-       
-        client.order({
+        //console.log(['buy',quantity, priceBuy]);
+        client.orderTest({
+            newClientOrderId:
+                Date.now().toString(36) +
+                '-' +
+                takeProfitBuyOrder.toString().replace('.', 'x'),
             symbol: tradingSymbol,
             side: 'BUY',
             quantity: quantity.toString(),
             price: priceBuy.toString(),
-            stopPrice: takeProfitBuyOrder.toString(),
-            type: 'TAKE_PROFIT_LIMIT',
+            //stopPrice: priceBuy.toString(),
+            type: 'LIMIT',
             timeInForce: 'GTC',
             newOrderRespType: 'ACK',
         });
@@ -371,13 +383,18 @@ function enterPositions() {
         quantity > 0 &&
         priceSell >= assets.quoteAsset.minPrice
     ) {
-        client.order({
+        //console.log(['sell', quantity, priceSell]);
+        client.orderTest({
+            newClientOrderId:
+                Date.now().toString(36) +
+                '-' +
+                takeProfitSellOrder.toString().replace('.', 'x'),
             symbol: tradingSymbol,
             side: 'SELL',
             quantity: quantity.toString(),
             price: priceSell.toString(),
-            stopPrice: takeProfitSellOrder.toString(),
-            type: 'TAKE_PROFIT_LIMIT',
+            // stopPrice: priceSell.toString(),
+            type: 'LIMIT',
             timeInForce: 'GTC',
             newOrderRespType: 'ACK',
         });
@@ -416,7 +433,7 @@ function listenMarket() {
         }
     });
 }
-
+//todo: make limit orders fok so that you can do single take profits
 async function listenAccount() {
     client.ws.user((msg: any) => {
         switch (msg.eventType) {
@@ -476,4 +493,6 @@ function trimOrders() {
     }
 }
 
+//TODO: when order comes back and it's filled or part filled, and is LIMIT not take profit, create a take profit 
 start();
+//console.log(toPrecision(0.02523295, 4, 'UP' as roundType).toString());

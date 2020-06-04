@@ -192,6 +192,9 @@ function toPrecision(num, digits, roundType) {
             precise = Number(Number(num).toFixed(digits)); //round as normail
             break;
     }
+    //now we have a clean number - we make sure it's trimmed properly
+    precise = Number(precise.toFixed(digits)); //needed to prevent something like 0.1 + 0.2 in js
+    console.log([num, str, precise]);
     return precise;
 }
 function calcMinProfitPips() {
@@ -278,7 +281,6 @@ function isAffordable(side, cost) {
     return true;
 }
 function enterPositions() {
-    //TODO: possible to set buy order with stop loss, then close it ourself after certain pips
     let quantity;
     let significantDigits = assets.quoteAsset.tickSize.toString().split('.')[1]
         .length;
@@ -291,13 +293,17 @@ function enterPositions() {
     if (entryType.buy &&
         quantity > 0 &&
         priceBuy >= assets.quoteAsset.minPrice) {
-        client.order({
+        //console.log(['buy',quantity, priceBuy]);
+        client.orderTest({
+            newClientOrderId: Date.now().toString(36) +
+                '-' +
+                takeProfitBuyOrder.toString().replace('.', 'x'),
             symbol: tradingSymbol,
             side: 'BUY',
             quantity: quantity.toString(),
             price: priceBuy.toString(),
-            stopPrice: takeProfitBuyOrder.toString(),
-            type: 'TAKE_PROFIT_LIMIT',
+            //stopPrice: priceBuy.toString(),
+            type: 'LIMIT',
             timeInForce: 'GTC',
             newOrderRespType: 'ACK',
         });
@@ -306,13 +312,17 @@ function enterPositions() {
     if (entryType.sell &&
         quantity > 0 &&
         priceSell >= assets.quoteAsset.minPrice) {
-        client.order({
+        console.log(['sell', quantity, priceSell]);
+        client.orderTest({
+            newClientOrderId: Date.now().toString(36) +
+                '-' +
+                takeProfitSellOrder.toString().replace('.', 'x'),
             symbol: tradingSymbol,
             side: 'SELL',
             quantity: quantity.toString(),
             price: priceSell.toString(),
-            stopPrice: takeProfitSellOrder.toString(),
-            type: 'TAKE_PROFIT_LIMIT',
+            // stopPrice: priceSell.toString(),
+            type: 'LIMIT',
             timeInForce: 'GTC',
             newOrderRespType: 'ACK',
         });
@@ -350,6 +360,7 @@ function listenMarket() {
         }
     });
 }
+//todo: make limit orders fok so that you can do single take profits
 async function listenAccount() {
     client.ws.user((msg) => {
         switch (msg.eventType) {
@@ -394,6 +405,7 @@ async function getOpenOrders() {
         }
     }
 }
+//TODO: FIX FOR BUG itterate better since also changing array
 function trimOrders() {
     //remove order statuses we don't need to monitor
     for (let i = 0, size = orders.length; i < size; i++) {
@@ -402,4 +414,5 @@ function trimOrders() {
     }
 }
 start();
+//console.log(toPrecision(0.02523295, 4, 'UP' as roundType).toString());
 //# sourceMappingURL=index.js.map
