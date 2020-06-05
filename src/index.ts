@@ -228,6 +228,7 @@ function toPrecision(num: number, digits: number, roundType: roundType) {
 }
 
 function calcMinProfitPips() {
+    //TODO: factor in cost of reselling after buying
     //formula below comes from: profit = volume(sellingPrice = buyingPrice).((100-fee)/100)
     let profit = assets.quoteAsset.tickSize; //just one pip
     let pips = (100 * profit) / (100 - currentFee.taker); //convert to pips
@@ -439,7 +440,14 @@ async function listenAccount() {
                 break;
             case 'executionReport':
                 if (msg.symbol != tradingSymbol) return; //not for us
-
+                if (
+                    msg.orderType == ('LIMIT' as orderType) &&
+                    [
+                        'FILLED' as orderStatus,
+                        'PARTIALLY_FILLED' as orderStatus,
+                    ].indexOf(msg.orderStatus as orderStatus) != -1
+                )
+                    liquidateOrder(msg);
                 let order: order = {
                     orderId: Number(msg.orderId),
                     orderStatus: msg.orderStatus,
@@ -454,7 +462,7 @@ async function listenAccount() {
                 } else {
                     orders[i] = order;
                 }
-                console.log(orders);
+
                 trimOrders();
                 break;
         }
@@ -463,6 +471,7 @@ async function listenAccount() {
 
 async function getOpenOrders() {
     let openOrders = await client.openOrders({ symbol: tradingSymbol });
+
     for (let i = 0, size = openOrders.length; i < size; i++) {
         if ((openOrders[i].status as orderStatus) == ('NEW' as orderStatus)) {
             orders.push({
@@ -476,15 +485,32 @@ async function getOpenOrders() {
     }
 }
 
-//TODO: FIX FOR BUG itterate better since also changing array
-function trimOrders() {
-    //remove order statuses we don't need to monitor
-    for (let i = 0, size = orders.length; i < size; i++) {
-        if (orders[i].orderStatus != ('NEW' as orderStatus))
-            orders.splice(i, 1);
-    }
+async function liquidateOrder(order) {
+    client.order({
+        symbol: tradingSymbol,
+        side: order.side, //confirm this
+        quantity: order.quantity, //do less fees
+        price: order.originalClientOrderId, //conver to price
+        stopPrice: order.originalClientOrderId, //conver to price
+        type: 'TAKE_PROFIT_LIMIT',
+        timeInForce: 'GTC',
+        newOrderRespType: 'ACK',
+    });
 }
 
-//TODO: when order comes back and it's filled or part filled, and is LIMIT not take profit, create a take profit 
-start();
-//console.log(toPrecision(0.02523295, 4, 'UP' as roundType).toString());
+function trimOrders() {
+    let monitored: order[] = [];
+    //remove order statuses we don't need to monitor
+    for (let i = 0, size = orders.length; i < size; i++) {
+        switch (orders[i].orderStatus) {
+            case 'NEW' as orderStatus:
+                monitored.push(orders[i]);
+                break;
+        }
+    }
+    orders = monitored;
+}
+
+//TODO: when order comes back and it's filled or part filled, and is LIMIT not take profit, create a take profit
+//start();
+listenAccount();
