@@ -360,19 +360,15 @@ function enterPositions() {
         quantity > 0 &&
         priceBuy >= assets.quoteAsset.minPrice
     ) {
-        //console.log(['buy',quantity, priceBuy]);
-        client.orderTest({
-            newClientOrderId:
-                Date.now().toString(36) +
-                '-' +
-                takeProfitBuyOrder.toString().replace('.', 'x'),
+        client.order({
+            newClientOrderId: takeProfitBuyOrder.toString().replace('.', 'x'),
             symbol: tradingSymbol,
             side: 'BUY',
             quantity: quantity.toString(),
             price: priceBuy.toString(),
-            //stopPrice: priceBuy.toString(),
-            type: 'LIMIT',
-            timeInForce: 'GTC',
+            stopPrice: priceBuy.toString(),
+            type: 'STOP_LOSS_LIMIT',
+            timeInForce: 'FOK', //need the whole order done so we don't take profit in parts
             newOrderRespType: 'ACK',
         });
     }
@@ -383,19 +379,15 @@ function enterPositions() {
         quantity > 0 &&
         priceSell >= assets.quoteAsset.minPrice
     ) {
-        //console.log(['sell', quantity, priceSell]);
-        client.orderTest({
-            newClientOrderId:
-                Date.now().toString(36) +
-                '-' +
-                takeProfitSellOrder.toString().replace('.', 'x'),
+        client.order({
+            newClientOrderId: takeProfitSellOrder.toString().replace('.', 'x'),
             symbol: tradingSymbol,
             side: 'SELL',
             quantity: quantity.toString(),
             price: priceSell.toString(),
-            // stopPrice: priceSell.toString(),
-            type: 'LIMIT',
-            timeInForce: 'GTC',
+            stopPrice: priceSell.toString(),
+            type: 'STOP_LOSS_LIMIT',
+            timeInForce: 'FOK', //need the whole order done so we don't take profit in parts
             newOrderRespType: 'ACK',
         });
     }

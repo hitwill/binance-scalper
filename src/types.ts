@@ -1,3 +1,4 @@
 type orderStatus = 'NEW|PARTIALLY_FILLED|FILLED|CANCELED|PENDING_CANCEL|REJECTED|EXPIRED|';
 type orderSide = 'BUY|SELL';
 type roundType = 'UP|DOWN|NORMAL';
+type orderType = 'LIMIT|TAKE_PROFIT_LIMIT';
