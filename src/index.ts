@@ -291,6 +291,18 @@ function getEntryQuantity(side: orderSide, price: number): number {
             break;
     }
 
+    quantity = formatQuantity(quantity, price);
+
+    let totalCost = quantity * price;
+
+    if (isAffordable(side, totalCost)) {
+        return quantity;
+    } else {
+        return 0;
+    }
+}
+
+function formatQuantity(quantity: number, price: number) {
     if (quantity * price < assets.quoteAsset.minNotional) {
         quantity = assets.quoteAsset.minNotional / price;
     }
@@ -300,14 +312,7 @@ function getEntryQuantity(side: orderSide, price: number): number {
     quantity += assets.baseAsset.stepSize; //in case rounding brought it slightly down
     if (quantity < assets.baseAsset.minQty) quantity = assets.baseAsset.minQty;
     if (quantity > assets.baseAsset.maxQty) quantity = assets.baseAsset.maxQty;
-
-    let totalCost = quantity * price;
-    if (totalCost)
-        if (isAffordable(side, totalCost)) {
             return quantity;
-        } else {
-            return 0;
-        }
 }
 
 function isAffordable(side: orderSide, cost: number): boolean {
