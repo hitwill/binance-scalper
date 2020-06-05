@@ -231,7 +231,7 @@ function calcMinProfitPips() {
     //TODO: factor in cost of reselling after buying
     //formula below comes from: profit = volume(sellingPrice = buyingPrice).((100-fee)/100)
     let profit = assets.quoteAsset.tickSize; //just one pip
-    let pips = (100 * profit) / (100 - currentFee.taker); //convert to pips
+    let pips = (100 * profit) / (100 - currentFee.maker); //convert to pips
     pips = toPrecision(
         pips,
         assets.quoteAsset.tickSize.toString().split('.')[1].length,
