@@ -491,12 +491,18 @@ async function getOpenOrders() {
 }
 
 async function liquidateOrder(order) {
+    let price = order.originalClientOrderId.replace('x', '.'); //convert id back to price
+    let quantity = formatQuantity(
+        order.quantity * (100 - currentFee.maker), //less fees
+        price
+    );
+
     client.order({
         symbol: tradingSymbol,
-        side: order.side, //confirm this
-        quantity: order.quantity, //do less fees
-        price: order.originalClientOrderId, //conver to price
-        stopPrice: order.originalClientOrderId, //conver to price
+        side: order.side == 'BUY' ? 'SELL' : 'BUY',
+        quantity: quantity.toString(),
+        price: price,
+        stopPrice: price,
         type: 'TAKE_PROFIT_LIMIT',
         timeInForce: 'GTC',
         newOrderRespType: 'ACK',
