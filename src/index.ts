@@ -160,6 +160,12 @@ function calcStandardDev() {
             quantile.lower,
             'BUY' as orderSide
         );
+        console.log(
+            'price: ' + quantile.lower,
+            'sellprice:' + sellPrice + ' volume:' + entryQuantity
+        );
+
+        console.log([standardDeviation * 2, sellPrice - quantile.lower]);
 
         //multiply deviate by 2 because it's one end, middle, then other end
         if (standardDeviation * 2 >= sellPrice - quantile.lower) {
@@ -256,23 +262,23 @@ function calcLiquidationPrice(
     }
     let volumePrice = tradeVolume * entryPrice;
     let profit = assets.quoteAsset.takeProfitPips;
-    let fee = (100 - currentFee.maker) / 100;
+    let afterFee = 100 / (100 - currentFee.maker);
 
     let priceSell: number =
-        ((profit + volumePrice) * Math.pow(fee, 2)) / tradeVolume;
-
+        ((profit + volumePrice) * Math.pow(afterFee, 2)) / tradeVolume;
+    
     priceSell = toPrecision(
         priceSell,
         assets.quoteAsset.tickSize.toString().split('.')[1].length,
         roundType
     ); //set precission and round it up
-
+    console.log('buy:' + entryPrice + ' sell: ' + priceSell);
     return priceSell;
 }
 
 function calcTakeProfitPips() {
     let minProfit = Number(
-        '0.'.padEnd(assets.quoteAsset.precision - 1, '0') + 1
+        '0.' + String().padEnd(assets.quoteAsset.precision - 1, '0') + 1
     ); //our takeProfit is just the mininimum profit we can get (scalping)
     return minProfit; //we can add rules to increase profit later
 }
@@ -376,6 +382,9 @@ function enterPositions() {
         'SELL' as orderSide
     );
 
+    console.log(['Buy-entry:' + priceBuy, 'exit:' + takeProfitBuyOrder]);
+    console.log(['Sell-entry:' + priceSell, 'exit:' + takeProfitSellOrder]);
+
     let entryType: entryType = findpositionsToExit(
         takeProfitBuyOrder,
         takeProfitSellOrder
@@ -444,7 +453,6 @@ function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
         addPriceToTicker(trade.price);
         calcStandardDev();
-        console.log(trade.price);
         if (findEntry) {
             enterPositions();
         } else {
