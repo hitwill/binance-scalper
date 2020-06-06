@@ -199,7 +199,7 @@ function isEvenlyDistributed(ticker: number[]): boolean {
     }
 }
 
-function calcQuantile(ticker : number[]) {
+function calcQuantile(ticker: number[]) {
     quantile.lower = toPrecision(
         quantileSeq(ticker, 0.01) as number,
         assets.quoteAsset.precision,
@@ -246,23 +246,20 @@ function calcLiquidationPrice(
     entryPrice: number,
     side: orderSide
 ) {
-    //formula below comes from: profit = VolumeSell*PriceSell*Fee-VolumeBuy*PriceBuy
+    //formula below comes from: profit = volumeSell*priceSell*fee - volumeBuy*priceBuy (volumeSell has buy fee incorporated)
     let roundType: roundType;
 
     if (side == ('SELL' as orderSide)) {
-        entryPrice = 1 / entryPrice; //we're selling the opposite asset at the 'opposite' price
         roundType = 'DOWN' as roundType;
     } else {
         roundType = 'UP' as roundType;
     }
+    let volumePrice = tradeVolume * entryPrice;
+    let profit = assets.quoteAsset.takeProfitPips;
+    let fee = (100 - currentFee.maker) / 100;
 
     let priceSell: number =
-        Math.pow(100 / (100 - currentFee.maker), 2) *
-        (assets.quoteAsset.takeProfitPips + tradeVolume * entryPrice);
-
-    if (side == ('SELL' as orderSide)) {
-        priceSell = 1 / priceSell;
-    }
+        ((profit + volumePrice) * Math.pow(fee, 2)) / tradeVolume;
 
     priceSell = toPrecision(
         priceSell,
@@ -274,7 +271,9 @@ function calcLiquidationPrice(
 }
 
 function calcTakeProfitPips() {
-    let minProfit = assets.quoteAsset.tickSize; //our takeProfit is just the mininimum profit we can get (scalping)
+    let minProfit = Number(
+        '0.'.padEnd(assets.quoteAsset.precision - 1, '0') + 1
+    ); //our takeProfit is just the mininimum profit we can get (scalping)
     return minProfit; //we can add rules to increase profit later
 }
 
@@ -314,26 +313,22 @@ function findpositionsToExit(
 function getEntryQuantity(side: orderSide, price: number): number {
     //cross reference api with these rules: https://www.binance.com/en/trade-rule
     let quantity: number = 0;
+    //price BTC/ETH
     switch (side) {
         case 'BUY' as orderSide:
-            quantity =
+            quantity = //ETH
                 (assets.quoteAsset.balance * spendFractionPerTrade) / price;
+            quantity = formatQuantity(quantity, price);
+            if (quantity * price > assets.quoteAsset.balance) return 0;
             break;
         case 'SELL' as orderSide:
-            price = 1 / price;
-            quantity = assets.baseAsset.balance * spendFractionPerTrade;
+            quantity = assets.baseAsset.balance * spendFractionPerTrade; //ETH
+            quantity = formatQuantity(quantity, price);
+            if (quantity > assets.baseAsset.balance) return 0;
             break;
     }
 
-    quantity = formatQuantity(quantity, price);
-
-    let totalCost = quantity * price;
-
-    if (isAffordable(side, totalCost)) {
-        return quantity;
-    } else {
-        return 0;
-    }
+    return quantity;
 }
 
 function formatQuantity(quantity: number, price: number) {
@@ -347,18 +342,6 @@ function formatQuantity(quantity: number, price: number) {
     if (quantity < assets.baseAsset.minQty) quantity = assets.baseAsset.minQty;
     if (quantity > assets.baseAsset.maxQty) quantity = assets.baseAsset.maxQty;
     return quantity;
-}
-
-function isAffordable(side: orderSide, cost: number): boolean {
-    switch (side) {
-        case 'BUY' as orderSide:
-            if (cost > assets.quoteAsset.balance) return false;
-            break;
-        case 'SELL' as orderSide:
-            if (cost > assets.baseAsset.balance) return false;
-            break;
-    }
-    return true;
 }
 
 function enterPositions() {
@@ -381,7 +364,6 @@ function enterPositions() {
     quantityBuy = getEntryQuantity('BUY' as orderSide, priceBuy);
     quantitySell = getEntryQuantity('SELL' as orderSide, priceSell);
 
-    console.log([priceTicker[0], priceBuy, priceSell]);
     let takeProfitBuyOrder: number = calcLiquidationPrice(
         quantityBuy,
         priceBuy,
@@ -404,7 +386,8 @@ function enterPositions() {
         quantityBuy > 0 &&
         priceBuy >= assets.quoteAsset.minPrice
     ) {
-        console.log('buying');
+        console.log(['buy at:' + priceBuy, 'sell at:' + takeProfitBuyOrder]);
+
         client.orderTest({
             newClientOrderId: takeProfitBuyOrder.toString().replace('.', 'x'),
             symbol: tradingSymbol,
@@ -423,7 +406,6 @@ function enterPositions() {
         quantitySell > 0 &&
         priceSell >= assets.quoteAsset.minPrice
     ) {
-        console.log('selling');
         client.orderTest({
             newClientOrderId: takeProfitSellOrder.toString().replace('.', 'x'),
             symbol: tradingSymbol,
@@ -462,7 +444,7 @@ function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
         addPriceToTicker(trade.price);
         calcStandardDev();
-        console.log(findEntry);
+        console.log(trade.price);
         if (findEntry) {
             enterPositions();
         } else {
