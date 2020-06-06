@@ -143,12 +143,26 @@ function calcStandardDev() {
     ) {
         findEntry = false;
         newTicker.push(priceTicker[tickerLength - 1]);
+        calcQuantile(newTicker);
         if (tickerLength < minTickerLength) continue;
         if (!isEvenlyDistributed(newTicker)) continue; //needs to be distributed around mean **over time**
 
         standardDeviation = std(newTicker, 'biased');
+
+        //Get the sell price we would use if we entered the market
+        let entryQuantity = getEntryQuantity(
+            'BUY' as orderSide,
+            quantile.lower
+        );
+
+        let sellPrice = calcLiquidationPrice(
+            entryQuantity,
+            quantile.lower,
+            'BUY' as orderSide
+        );
+
         //multiply deviate by 2 because it's one end, middle, then other end
-        if (standardDeviation * 2 >= assets.quoteAsset.takeProfitPips) {
+        if (standardDeviation * 2 >= sellPrice - quantile.lower) {
             if (finalTickerLength == Infinity)
                 finalTickerLength = tickerLength * channelLengthMultiple;
             if (tickerLength >= finalTickerLength) {
@@ -185,14 +199,14 @@ function isEvenlyDistributed(ticker: number[]): boolean {
     }
 }
 
-function calcQuantile() {
+function calcQuantile(ticker : number[]) {
     quantile.lower = toPrecision(
-        quantileSeq(priceTicker, 0.01) as number,
+        quantileSeq(ticker, 0.01) as number,
         assets.quoteAsset.precision,
         'DOWN' as roundType
     );
     quantile.upper = toPrecision(
-        quantileSeq(priceTicker, 0.99) as number,
+        quantileSeq(ticker, 0.99) as number,
         assets.quoteAsset.precision,
         'UP' as roundType
     );
@@ -227,21 +241,40 @@ function toPrecision(num: number, digits: number, roundType: roundType) {
     return precise;
 }
 
-function calcMinProfitPips() {
-    //TODO: factor in cost of reselling after buying
-    //formula below comes from: profit = volume(sellingPrice = buyingPrice).((100-fee)/100)
-    let profit = assets.quoteAsset.tickSize; //just one pip
-    let pips = (100 * profit) / (100 - currentFee.maker); //convert to pips
-    pips = toPrecision(
-        pips,
+function calcLiquidationPrice(
+    tradeVolume: number,
+    entryPrice: number,
+    side: orderSide
+) {
+    //formula below comes from: profit = VolumeSell*PriceSell*Fee-VolumeBuy*PriceBuy
+    let roundType: roundType;
+
+    if (side == ('SELL' as orderSide)) {
+        entryPrice = 1 / entryPrice; //we're selling the opposite asset at the 'opposite' price
+        roundType = 'DOWN' as roundType;
+    } else {
+        roundType = 'UP' as roundType;
+    }
+
+    let priceSell: number =
+        Math.pow(100 / (100 - currentFee.maker), 2) *
+        (assets.quoteAsset.takeProfitPips + tradeVolume * entryPrice);
+
+    if (side == ('SELL' as orderSide)) {
+        priceSell = 1 / priceSell;
+    }
+
+    priceSell = toPrecision(
+        priceSell,
         assets.quoteAsset.tickSize.toString().split('.')[1].length,
-        'UP' as roundType
+        roundType
     ); //set precission and round it up
-    return pips;
+
+    return priceSell;
 }
 
 function calcTakeProfitPips() {
-    let minProfit = calcMinProfitPips(); //our takeProfit is just the mininimum profit we can get (scalping)
+    let minProfit = assets.quoteAsset.tickSize; //our takeProfit is just the mininimum profit we can get (scalping)
     return minProfit; //we can add rules to increase profit later
 }
 
@@ -287,6 +320,7 @@ function getEntryQuantity(side: orderSide, price: number): number {
                 (assets.quoteAsset.balance * spendFractionPerTrade) / price;
             break;
         case 'SELL' as orderSide:
+            price = 1 / price;
             quantity = assets.baseAsset.balance * spendFractionPerTrade;
             break;
     }
@@ -312,7 +346,7 @@ function formatQuantity(quantity: number, price: number) {
     quantity += assets.baseAsset.stepSize; //in case rounding brought it slightly down
     if (quantity < assets.baseAsset.minQty) quantity = assets.baseAsset.minQty;
     if (quantity > assets.baseAsset.maxQty) quantity = assets.baseAsset.maxQty;
-            return quantity;
+    return quantity;
 }
 
 function isAffordable(side: orderSide, cost: number): boolean {
@@ -328,7 +362,8 @@ function isAffordable(side: orderSide, cost: number): boolean {
 }
 
 function enterPositions() {
-    let quantity: number;
+    let quantityBuy: number;
+    let quantitySell: number;
 
     let significantDigits = assets.quoteAsset.tickSize.toString().split('.')[1]
         .length;
@@ -343,16 +378,20 @@ function enterPositions() {
         'UP' as roundType
     );
 
-    let takeProfitBuyOrder: number = toPrecision(
-        priceBuy + assets.quoteAsset.takeProfitPips,
-        significantDigits,
-        'UP' as roundType
+    quantityBuy = getEntryQuantity('BUY' as orderSide, priceBuy);
+    quantitySell = getEntryQuantity('SELL' as orderSide, priceSell);
+
+    console.log([priceTicker[0], priceBuy, priceSell]);
+    let takeProfitBuyOrder: number = calcLiquidationPrice(
+        quantityBuy,
+        priceBuy,
+        'BUY' as orderSide
     );
 
-    let takeProfitSellOrder: number = toPrecision(
-        priceSell - assets.quoteAsset.takeProfitPips,
-        significantDigits,
-        'DOWN' as roundType
+    let takeProfitSellOrder: number = calcLiquidationPrice(
+        quantitySell,
+        priceSell,
+        'SELL' as orderSide
     );
 
     let entryType: entryType = findpositionsToExit(
@@ -360,17 +399,17 @@ function enterPositions() {
         takeProfitSellOrder
     );
 
-    quantity = getEntryQuantity('BUY' as orderSide, priceBuy);
     if (
         entryType.buy &&
-        quantity > 0 &&
+        quantityBuy > 0 &&
         priceBuy >= assets.quoteAsset.minPrice
     ) {
-        client.order({
+        console.log('buying');
+        client.orderTest({
             newClientOrderId: takeProfitBuyOrder.toString().replace('.', 'x'),
             symbol: tradingSymbol,
             side: 'BUY',
-            quantity: quantity.toString(),
+            quantity: quantityBuy.toString(),
             price: priceBuy.toString(),
             stopPrice: priceBuy.toString(),
             type: 'STOP_LOSS_LIMIT',
@@ -379,17 +418,17 @@ function enterPositions() {
         });
     }
 
-    quantity = getEntryQuantity('SELL' as orderSide, priceSell);
     if (
         entryType.sell &&
-        quantity > 0 &&
+        quantitySell > 0 &&
         priceSell >= assets.quoteAsset.minPrice
     ) {
-        client.order({
+        console.log('selling');
+        client.orderTest({
             newClientOrderId: takeProfitSellOrder.toString().replace('.', 'x'),
             symbol: tradingSymbol,
             side: 'SELL',
-            quantity: quantity.toString(),
+            quantity: quantitySell.toString(),
             price: priceSell.toString(),
             stopPrice: priceSell.toString(),
             type: 'STOP_LOSS_LIMIT',
@@ -423,7 +462,7 @@ function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
         addPriceToTicker(trade.price);
         calcStandardDev();
-        calcQuantile();
+        console.log(findEntry);
         if (findEntry) {
             enterPositions();
         } else {
@@ -522,6 +561,4 @@ function trimOrders() {
     orders = monitored;
 }
 
-//TODO: when order comes back and it's filled or part filled, and is LIMIT not take profit, create a take profit
-//start();
-listenAccount();
+start();
