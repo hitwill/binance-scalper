@@ -9,6 +9,7 @@ interface quantile {
 }
 
 interface assets {
+    minNotional: number;
     quoteAsset: {
         name: string;
         precision: number;
@@ -17,7 +18,6 @@ interface assets {
         tickSize: number;
         takeProfitPips: number;
         balance: number;
-        minNotional: number;
     };
     baseAsset: {
         name: string;
@@ -36,7 +36,6 @@ interface order {
     orderPrice: number;
     orderStopPrice: number;
 }
-
 
 interface entryType {
     buy: boolean;
