@@ -10,7 +10,7 @@ const client = binance_api_node_1.default({
 });
 //config vars
 let channelLengthMultiple = 2; //multiple of standard dev long channel
-let spendFractionPerTrade = 0.01;
+let spendFractionPerTrade = 0.3; //when higher, less pips are  needed to make a profit. Keep uner 0.5
 //end config
 let priceTicker = []; //hold a list of recent prices
 let quantile = { upper: Infinity, lower: 0 };
@@ -169,8 +169,9 @@ function isEvenlyDistributed(ticker) {
     }
 }
 function calcQuantile(ticker) {
-    quantile.lower = toPrecision(mathjs_1.quantileSeq(ticker, 0.01), assets.quoteAsset.precision, 'DOWN');
-    quantile.upper = toPrecision(mathjs_1.quantileSeq(ticker, 0.99), assets.quoteAsset.precision, 'UP');
+    //make sure quantiles are above/ below current price
+    quantile.lower = Math.min(toPrecision(mathjs_1.quantileSeq(ticker, 0.01), assets.quoteAsset.precision, 'DOWN'), toPrecision(priceTicker[0] - assets.quoteAsset.tickSize, assets.quoteAsset.tickSize.toString().split('.')[1].length, 'DOWN'));
+    quantile.upper = Math.max(toPrecision(mathjs_1.quantileSeq(ticker, 0.99), assets.quoteAsset.precision, 'UP'), toPrecision(priceTicker[0] + assets.quoteAsset.tickSize, assets.quoteAsset.tickSize.toString().split('.')[1].length, 'UP'));
 }
 function toPrecision(num, digits, roundType) {
     let precise;
@@ -256,49 +257,31 @@ function getEntryQuantity(side, price) {
     //price BTC/ETH
     switch (side) {
         case 'BUY':
-            quantity = //ETH
+            quantity =
                 (assets.quoteAsset.balance * spendFractionPerTrade) / price;
-            quantity = formatQuantity(quantity, price, 'BUY');
+            quantity = formatQuantity(quantity, price);
             if (quantity * price > assets.quoteAsset.balance)
                 return 0;
             break;
         case 'SELL':
-            quantity = assets.baseAsset.balance * spendFractionPerTrade; //BTC
-            quantity = formatQuantity(quantity, price, 'SELL');
+            quantity = assets.baseAsset.balance * spendFractionPerTrade;
+            quantity = formatQuantity(quantity, price);
             if (quantity > assets.baseAsset.balance)
                 return 0;
             break;
     }
     return quantity;
 }
-function formatQuantity(quantity, price, orderSide) {
+function formatQuantity(quantity, price) {
     let significantDigits;
-    switch (orderSide) {
-        case 'BUY':
-            //quantity is in ETH
-            if (quantity * price < assets.minNotional)
-                quantity = assets.minNotional / price;
-            if (quantity < assets.baseAsset.minQty)
-                quantity = assets.baseAsset.minQty;
-            if (quantity > assets.baseAsset.maxQty)
-                quantity = assets.baseAsset.maxQty;
-            significantDigits = assets.baseAsset.stepSize
-                .toString()
-                .split('.')[1].length;
-            break;
-        case 'SELL':
-            //quantity is in BTC
-            if (quantity < assets.minNotional)
-                quantity = assets.minNotional;
-            if (quantity / price < assets.baseAsset.minQty)
-                quantity = assets.baseAsset.minQty / price;
-            if (quantity / price > assets.baseAsset.maxQty)
-                quantity = assets.baseAsset.maxQty / price;
-            significantDigits = assets.quoteAsset.tickSize
-                .toString()
-                .split('.')[1].length;
-            break;
-    }
+    if (quantity * price < assets.minNotional)
+        quantity = (assets.minNotional / price) + assets.quoteAsset.tickSize;
+    if (quantity < assets.baseAsset.minQty)
+        quantity = assets.baseAsset.minQty;
+    if (quantity > assets.baseAsset.maxQty)
+        quantity = assets.baseAsset.maxQty;
+    significantDigits = assets.baseAsset.stepSize.toString().split('.')[1]
+        .length;
     quantity = toPrecision(quantity, significantDigits, 'UP'); //round up - less likely to  hit max quantity
     return quantity;
 }
@@ -317,34 +300,46 @@ function enterPositions() {
     if (entryType.buy &&
         quantityBuy > 0 &&
         priceBuy >= assets.quoteAsset.minPrice) {
-        /*console.log(['buy at:' + priceBuy, 'sell at:' + takeProfitBuyOrder, 'quantity:' + quantityBuy]);
-
-        client.orderTest({
-            newClientOrderId: takeProfitBuyOrder.toString().replace('.', 'x'),
-            symbol: tradingSymbol,
-            side: 'BUY',
-            quantity: quantityBuy.toString(),
-            price: priceBuy.toString(),
-            stopPrice: priceBuy.toString(),
-            type: 'STOP_LOSS_LIMIT',
-            timeInForce: 'FOK', //need the whole order done so we don't take profit in parts
-            newOrderRespType: 'ACK',
-        }); */
+        console.log([
+            'buy at:' + priceBuy,
+            'sell at:' + takeProfitBuyOrder,
+            'quantity:' + quantityBuy,
+        ]);
+        doOrder(takeProfitBuyOrder.toString().replace('.', 'x'), tradingSymbol, 'SELL', quantityBuy, priceBuy);
     }
     if (entryType.sell &&
         quantitySell > 0 &&
         priceSell >= assets.quoteAsset.minPrice) {
-        console.log(['sell at:' + priceSell, 'buy at:' + takeProfitSellOrder, 'quantity:' + quantitySell]);
-        client.orderTest({
-            newClientOrderId: takeProfitSellOrder.toString().replace('.', 'x'),
-            symbol: tradingSymbol,
-            side: 'SELL',
-            quantity: quantitySell.toString(),
-            price: priceSell.toString(),
-            stopPrice: priceSell.toString(),
-            type: 'STOP_LOSS_LIMIT',
+        console.log([
+            'sell at:' + priceSell,
+            'buy at:' + takeProfitSellOrder,
+            'quantity:' + quantitySell,
+        ]);
+        doOrder(takeProfitSellOrder.toString().replace('.', 'x'), tradingSymbol, 'SELL', quantitySell, priceSell);
+    }
+    function doOrder(orderId, symbol, side, quantity, price) {
+        let orderParams = {
+            newClientOrderId: orderId,
+            symbol: symbol,
+            side: side,
+            quantity: quantity.toString(),
+            price: price.toString(),
+            stopPrice: price.toString(),
+            type: '',
             timeInForce: 'FOK',
             newOrderRespType: 'ACK',
+        };
+        if (side == 'BUY') {
+            orderParams.type = 'TAKE_PROFIT_LIMIT';
+        }
+        else {
+            orderParams.type = 'STOP_LOSS_LIMIT';
+        }
+        client.order(orderParams).catch((error) => {
+            console.log('order error');
+            console.log(orderParams);
+            console.log('price:' + priceTicker[0]);
+            console.log(error);
         });
     }
 }
@@ -433,16 +428,28 @@ async function getOpenOrders() {
 async function liquidateOrder(order) {
     let price = order.originalClientOrderId.replace('x', '.'); //convert id back to price
     let quantity = formatQuantity(order.quantity * (100 - currentFee.maker), //less fees
-    price, order.side);
-    client.order({
+    price);
+    let orderParams = {
         symbol: tradingSymbol,
         side: order.side == 'BUY' ? 'SELL' : 'BUY',
         quantity: quantity.toString(),
         price: price,
         stopPrice: price,
-        type: 'TAKE_PROFIT_LIMIT',
+        type: '',
         timeInForce: 'GTC',
         newOrderRespType: 'ACK',
+    };
+    if (orderParams.side == 'BUY') {
+        orderParams.type = 'TAKE_PROFIT_LIMIT';
+    }
+    else {
+        orderParams.type = 'STOP_LOSS_LIMIT';
+    }
+    client.order(orderParams).catch((error) => {
+        console.log('order error');
+        console.log(orderParams);
+        console.log('price:' + priceTicker[0]);
+        console.log(error);
     });
 }
 function trimOrders() {
