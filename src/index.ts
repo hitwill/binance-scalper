@@ -352,8 +352,7 @@ function getEntryQuantity(side: orderSide, price: number): number {
 function formatQuantity(quantity: number, price: number) {
     let significantDigits: number;
     if (quantity * price < assets.minNotional)
-        quantity = (assets.minNotional / price) + assets.quoteAsset.tickSize;
-
+        quantity = assets.minNotional / price + assets.quoteAsset.tickSize;
     if (quantity < assets.baseAsset.minQty) quantity = assets.baseAsset.minQty;
     if (quantity > assets.baseAsset.maxQty) quantity = assets.baseAsset.maxQty;
     significantDigits = assets.baseAsset.stepSize.toString().split('.')[1]
@@ -406,16 +405,10 @@ function enterPositions() {
         quantityBuy > 0 &&
         priceBuy >= assets.quoteAsset.minPrice
     ) {
-        console.log([
-            'buy at:' + priceBuy,
-            'sell at:' + takeProfitBuyOrder,
-            'quantity:' + quantityBuy,
-        ]);
-
         doOrder(
             takeProfitBuyOrder.toString().replace('.', 'x'),
             tradingSymbol,
-            'SELL' as orderSide,
+            'BUY' as orderSide,
             quantityBuy,
             priceBuy
         );
@@ -426,12 +419,6 @@ function enterPositions() {
         quantitySell > 0 &&
         priceSell >= assets.quoteAsset.minPrice
     ) {
-        console.log([
-            'sell at:' + priceSell,
-            'buy at:' + takeProfitSellOrder,
-            'quantity:' + quantitySell,
-        ]);
-
         doOrder(
             takeProfitSellOrder.toString().replace('.', 'x'),
             tradingSymbol,
@@ -459,16 +446,14 @@ function enterPositions() {
             timeInForce: 'FOK',
             newOrderRespType: 'ACK',
         };
-
+        console.log(orderParams);
         if (side == ('BUY' as orderSide)) {
             orderParams.type = 'TAKE_PROFIT_LIMIT';
         } else {
             orderParams.type = 'STOP_LOSS_LIMIT';
         }
         client.order(orderParams as any).catch((error) => {
-            console.log('order error');
             console.log(orderParams);
-            console.log('price:' + priceTicker[0]);
             console.log(error);
         });
     }
@@ -578,11 +563,11 @@ async function liquidateOrder(order) {
         quantity: quantity.toString(),
         price: price,
         stopPrice: price,
-        type: '', 
+        type: '',
         timeInForce: 'GTC',
         newOrderRespType: 'ACK',
     };
-
+    console.log('liquidate:' + orderParams);
     if (orderParams.side == ('BUY' as orderSide)) {
         orderParams.type = 'TAKE_PROFIT_LIMIT';
     } else {
@@ -590,9 +575,7 @@ async function liquidateOrder(order) {
     }
 
     client.order(orderParams as any).catch((error) => {
-        console.log('order error');
         console.log(orderParams);
-        console.log('price:' + priceTicker[0]);
         console.log(error);
     });
 }

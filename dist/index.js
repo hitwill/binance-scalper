@@ -257,6 +257,7 @@ function getEntryQuantity(side, price) {
     //price BTC/ETH
     switch (side) {
         case 'BUY':
+            console.log('buy');
             quantity =
                 (assets.quoteAsset.balance * spendFractionPerTrade) / price;
             quantity = formatQuantity(quantity, price);
@@ -264,8 +265,10 @@ function getEntryQuantity(side, price) {
                 return 0;
             break;
         case 'SELL':
+            console.log('sell');
             quantity = assets.baseAsset.balance * spendFractionPerTrade;
             quantity = formatQuantity(quantity, price);
+            console.log('quantity' + quantity, 'balance' + assets.baseAsset.balance);
             if (quantity > assets.baseAsset.balance)
                 return 0;
             break;
@@ -274,8 +277,16 @@ function getEntryQuantity(side, price) {
 }
 function formatQuantity(quantity, price) {
     let significantDigits;
+    console.log('quantity:' + quantity, 'balance:' + assets.baseAsset.balance);
     if (quantity * price < assets.minNotional)
-        quantity = (assets.minNotional / price) + assets.quoteAsset.tickSize;
+        quantity = assets.minNotional / price + assets.quoteAsset.tickSize;
+    console.log([
+        'after notional',
+        quantity,
+        'minnotional:' + assets.minNotional,
+        'price:' + price,
+        'ticksize:' + assets.quoteAsset.tickSize,
+    ]);
     if (quantity < assets.baseAsset.minQty)
         quantity = assets.baseAsset.minQty;
     if (quantity > assets.baseAsset.maxQty)
