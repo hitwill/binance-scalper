@@ -31,6 +31,7 @@ interface assets {
 
 interface order {
     orderId: number;
+    clientOrderID: string;
     orderStatus: orderStatus;
     orderSide: orderSide;
     orderPrice: number;
