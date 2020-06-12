@@ -105,7 +105,8 @@ function extractRules(symbol) {
                 assets.quoteAsset.minPrice = Number(filter.minPrice);
                 assets.quoteAsset.maxPrice = Number(filter.maxPrice);
                 assets.quoteAsset.tickSize = Number(filter.tickSize);
-                minTakeProfitTicks = minTakeProfitTicks * assets.quoteAsset.tickSize;
+                minTakeProfitTicks =
+                    minTakeProfitTicks * assets.quoteAsset.tickSize;
                 break;
             case 'MIN_NOTIONAL':
                 assets.minNotional = Number(filter.minNotional);
@@ -235,12 +236,13 @@ function calcTakeProfitPips() {
 function findpositionsToExit(orderIdBuy, orderIdSell, priceBuy, priceSell) {
     //exit orders that are disimilar to next ones we'll make
     let entryType = { buy: true, sell: true };
+    let toExit = getUnenteredPositions(); //we store here - because the orders array will be changing through webhooks as we cancel
     for (let i = 0, size = orders.length; i < size; i++) {
         switch (orders[i].orderSide) {
             case 'BUY':
                 if (orders[i].orderPrice != priceBuy ||
                     orders[i].clientOrderID != orderIdBuy) {
-                    exitUnenteredPositions(orders[i].clientOrderID);
+                    exitUnenteredPositions(orders[i].clientOrderID, toExit);
                 }
                 else {
                     entryType.buy = false;
@@ -249,7 +251,7 @@ function findpositionsToExit(orderIdBuy, orderIdSell, priceBuy, priceSell) {
             case 'SELL':
                 if (orders[i].orderPrice != priceSell ||
                     orders[i].clientOrderID != orderIdSell) {
-                    exitUnenteredPositions(orders[i].clientOrderID);
+                    exitUnenteredPositions(orders[i].clientOrderID, toExit);
                 }
                 else {
                     entryType.sell = false;
@@ -293,6 +295,9 @@ function formatQuantity(quantity, price) {
     quantity = toPrecision(quantity, significantDigits, 'UP'); //round up - less likely to  hit max quantity
     return quantity;
 }
+function randomString() {
+    return (+new Date()).toString(36);
+}
 function enterPositions() {
     let quantityBuy;
     let quantitySell;
@@ -304,8 +309,9 @@ function enterPositions() {
     quantitySell = getEntryQuantity('SELL', priceSell);
     let takeProfitBuyOrder = calcLiquidationPrice(quantityBuy, priceBuy, 'BUY');
     let takeProfitSellOrder = calcLiquidationPrice(quantitySell, priceSell, 'SELL');
-    let orderIdBuy = takeProfitBuyOrder.toString().replace('.', 'x');
-    let orderIdSell = takeProfitSellOrder.toString().replace('.', 'x');
+    //Need to tag B/S 'cause exit positions can be same. Avoid using duplicate order id
+    let orderIdBuy = randomString() + 'B-' + takeProfitBuyOrder.toString().replace('.', 'x');
+    let orderIdSell = randomString() + 'S-' + takeProfitSellOrder.toString().replace('.', 'x');
     let entryType = findpositionsToExit(orderIdBuy, orderIdSell, priceBuy, priceSell);
     if (entryType.buy &&
         quantityBuy > 0 &&
@@ -331,7 +337,11 @@ function enterPositions() {
             timeInForce: 'FOK',
             newOrderRespType: 'ACK',
         };
-        console.log(orderParams);
+        console.log(orderParams.newClientOrderId +
+            ' ' +
+            side +
+            ' at: ' +
+            orderParams.price);
         if (side == 'BUY') {
             orderParams.type = 'TAKE_PROFIT_LIMIT';
         }
@@ -339,7 +349,12 @@ function enterPositions() {
             orderParams.type = 'TAKE_PROFIT_LIMIT'; //'STOP_LOSS_LIMIT';
         }
         client.order(orderParams).catch((error) => {
-            console.log(orderParams);
+            console.log('ERROR:' +
+                orderParams.newClientOrderId +
+                ' ' +
+                orderParams.side +
+                ' at: ' +
+                orderParams.price);
             console.log(error);
         });
     }
@@ -352,10 +367,10 @@ function getUnenteredPositions() {
             orders[i].orderStatus = 'PENDING_CANCEL'; //mark for deletion
         }
     }
+    trimOrders(); //remove all those pending cancel
     return toExit;
 }
-async function exitUnenteredPositions(clientOrderID) {
-    let toExit = getUnenteredPositions(); //we store here - because the orders array will be changing through webhooks as we cancel
+async function exitUnenteredPositions(clientOrderID, toExit) {
     for (let i = 0, size = toExit.length; i < size; i++) {
         if (clientOrderID !== null && toExit[i].clientOrderID != clientOrderID)
             continue;
@@ -363,6 +378,7 @@ async function exitUnenteredPositions(clientOrderID) {
             symbol: tradingSymbol,
             orderId: toExit[i].orderId,
         };
+        console.log('Cancel:' + toExit[i].clientOrderID + ' ' + toExit[i].orderSide + ' at: ' + toExit[i].orderStopPrice);
         client.cancelOrder(orderParams).catch((error) => {
             console.log(orderParams);
             console.log(error);
@@ -378,7 +394,8 @@ function listenMarket() {
             enterPositions();
         }
         else {
-            exitUnenteredPositions(null); //exit all unentered positions
+            let toExit = getUnenteredPositions(); //we store here - because the orders array will be changing through webhooks as we cancel
+            exitUnenteredPositions(null, toExit); //exit all unentered positions
         }
     });
 }
@@ -435,7 +452,7 @@ async function getOpenOrders() {
     }
 }
 async function liquidateOrder(order) {
-    let price = order.originalClientOrderId.replace('x', '.'); //convert id back to price
+    let price = order.originalClientOrderId.split('-')[1].replace('x', '.'); //convert id back to price
     let quantity = formatQuantity(order.quantity * (100 - currentFee.maker), //less fees
     price);
     let orderParams = {
