@@ -314,24 +314,26 @@ function findpositionsToExit(
     let entryType: entryType = { buy: true, sell: true };
     let toExit = getUnenteredPositions(); //we store here - because the orders array will be changing through webhooks as we cancel
 
-    for (let i = 0, size = orders.length; i < size; i++) {
-        switch (orders[i].orderSide) {
+    for (let i = 0, size = toExit.length; i < size; i++) {
+        switch (toExit[i].orderSide) {
             case 'BUY' as orderSide:
                 if (
-                    orders[i].orderPrice != priceBuy ||
-                    orders[i].clientOrderID != orderIdBuy
+                    toExit[i].orderPrice != priceBuy ||
+                    toExit[i].clientOrderID.split('-')[1] !=
+                    orderIdBuy.split('-')[1]
                 ) {
-                    exitUnenteredPositions(orders[i].clientOrderID, toExit);
+                    exitUnenteredPositions(toExit[i].clientOrderID, toExit);
                 } else {
                     entryType.buy = false;
                 }
                 break;
             case 'SELL' as orderSide:
                 if (
-                    orders[i].orderPrice != priceSell ||
-                    orders[i].clientOrderID != orderIdSell
+                    toExit[i].orderPrice != priceSell ||
+                    toExit[i].clientOrderID.split('-')[1] !=
+                    orderIdSell.split('-')[1]
                 ) {
-                    exitUnenteredPositions(orders[i].clientOrderID, toExit);
+                    exitUnenteredPositions(toExit[i].clientOrderID, toExit);
                 } else {
                     entryType.sell = false;
                 }
@@ -416,7 +418,9 @@ function enterPositions() {
     let orderIdBuy =
         randomString() + 'B-' + takeProfitBuyOrder.toString().replace('.', 'x');
     let orderIdSell =
-        randomString() + 'S-' + takeProfitSellOrder.toString().replace('.', 'x');
+        randomString() +
+        'S-' +
+        takeProfitSellOrder.toString().replace('.', 'x');
 
     let entryType: entryType = findpositionsToExit(
         orderIdBuy,
@@ -424,6 +428,13 @@ function enterPositions() {
         priceBuy,
         priceSell
     );
+
+    if (!entryType.buy) {
+        console.log('reusing buy');
+    }
+    if (!entryType.sell) {
+        console.log('reusing sell');
+    }
 
     if (
         entryType.buy &&
@@ -475,10 +486,10 @@ function enterPositions() {
         };
         console.log(
             orderParams.newClientOrderId +
-                ' ' +
-                side +
-                ' at: ' +
-                orderParams.price
+            ' ' +
+            side +
+            ' at: ' +
+            orderParams.price
         );
         if (side == ('BUY' as orderSide)) {
             orderParams.type = 'TAKE_PROFIT_LIMIT';
@@ -488,11 +499,11 @@ function enterPositions() {
         client.order(orderParams as any).catch((error) => {
             console.log(
                 'ERROR:' +
-                    orderParams.newClientOrderId +
-                    ' ' +
-                    orderParams.side +
-                    ' at: ' +
-                    orderParams.price
+                orderParams.newClientOrderId +
+                ' ' +
+                orderParams.side +
+                ' at: ' +
+                orderParams.price
             );
             console.log(error);
         });
@@ -502,13 +513,19 @@ function enterPositions() {
 function getUnenteredPositions() {
     let toExit: order[] = [];
     for (let i = 0, size = orders.length; i < size; i++) {
-        if (orders[i].orderStatus == ('NEW' as orderStatus)) {
+        if (orders[i].orderStatus == ('NEW' as orderStatus))
             toExit.push(orders[i]);
-            orders[i].orderStatus = 'PENDING_CANCEL' as orderStatus; //mark for deletion
+    }
+    return toExit;
+}
+
+function markOrderCanceled(orderId: number) {
+    for (let i = 0, size = orders.length; i < size; i++) {
+        if (orders[i].orderId == orderId) {
+            orders[i].orderStatus = 'PENDING_CANCEL' as orderStatus; //mark as being cancelled
         }
     }
-    trimOrders(); //remove all those pending cancel
-    return toExit;
+    trimOrders();
 }
 
 async function exitUnenteredPositions(clientOrderID: string, toExit: order[]) {
@@ -520,8 +537,15 @@ async function exitUnenteredPositions(clientOrderID: string, toExit: order[]) {
             orderId: toExit[i].orderId,
         };
         console.log(
-            'Cancel:' + toExit[i].clientOrderID + ' ' + toExit[i].orderSide + ' at: ' + toExit[i].orderStopPrice
+            'CANCEL:' +
+            toExit[i].clientOrderID +
+            ' ' +
+            toExit[i].orderSide +
+            ' at: ' +
+            toExit[i].orderStopPrice
         );
+
+        markOrderCanceled(toExit[i].orderId); //mark locally as cancelled
         client.cancelOrder(orderParams as any).catch((error) => {
             console.log(orderParams);
             console.log(error);
@@ -556,6 +580,7 @@ async function listenAccount() {
                 break;
             case 'executionReport':
                 if (msg.symbol != tradingSymbol) return; //not for us
+                console.log(msg);
                 if (
                     msg.orderType == ('LIMIT' as orderType) &&
                     [
@@ -566,7 +591,8 @@ async function listenAccount() {
                     liquidateOrder(msg);
 
                 let order: order = {
-                    clientOrderID: msg.newClientOrderId,
+                    //the id returned with -0x is ours. Binance toggles it sometimes
+                    clientOrderID: msg.originalClientOrderId.indexOf('-0x') == -1 ? msg.newClientOrderId : msg.originalClientOrderId,
                     orderId: msg.orderId,
                     orderStatus: msg.orderStatus,
                     orderPrice: Number(msg.price),
