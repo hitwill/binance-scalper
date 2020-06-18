@@ -4,13 +4,25 @@ const mathjs_1 = require("mathjs");
 const dotenv = require("dotenv");
 const binance_api_node_1 = require("binance-api-node");
 dotenv.config();
+//start logger
+const winston = require('winston');
+const logger = winston.createLogger({
+    level: 'info',
+    format: winston.format.json(),
+    defaultMeta: { service: 'user-service' },
+    transports: [
+        new winston.transports.File({ filename: 'error.log', level: 'error' }),
+        new winston.transports.File({ filename: 'combined.log' }),
+    ],
+});
+//end logger
 const client = binance_api_node_1.default({
     apiKey: process.env.API_KEY,
     apiSecret: process.env.API_SECRET,
 });
 //config vars
-let channelLengthMultiple = 2; //multiple of standard dev long channel
-let spendFractionPerTrade = 0.3; //when higher, less pips are  needed to make a profit. Keep uner 0.5
+let channelLengthMultiple = 1; //multiple of standard dev long channel
+let spendFractionPerTrade = 0.1; //when higher, less pips are  needed to make a profit. Keep uner 0.5
 let minTakeProfitTicks = 2; //force target price to move by x ticks at least. (sometimes it's small depending on volume)
 //end config
 let priceTicker = []; //hold a list of recent prices
@@ -318,10 +330,10 @@ function enterPositions() {
         takeProfitSellOrder.toString().replace('.', 'x');
     let entryType = findpositionsToExit(orderIdBuy, orderIdSell, priceBuy, priceSell);
     if (!entryType.buy) {
-        console.log('reusing buy');
+        logger.info('reusing buy');
     }
     if (!entryType.sell) {
-        console.log('reusing sell');
+        logger.info('reusing sell');
     }
     if (entryType.buy &&
         quantityBuy > 0 &&
@@ -344,10 +356,10 @@ function enterPositions() {
             price: price.toString(),
             stopPrice: price.toString(),
             type: '',
-            timeInForce: 'FOK',
+            timeInForce: 'GTC',
             newOrderRespType: 'ACK',
         };
-        console.log(orderParams.newClientOrderId +
+        logger.info(orderParams.newClientOrderId +
             ' ' +
             side +
             ' at: ' +
@@ -356,16 +368,14 @@ function enterPositions() {
             orderParams.type = 'TAKE_PROFIT_LIMIT';
         }
         else {
-            orderParams.type = 'TAKE_PROFIT_LIMIT'; //'STOP_LOSS_LIMIT';
+            orderParams.type = 'TAKE_PROFIT_LIMIT';
         }
         client.order(orderParams).catch((error) => {
-            console.log('ERROR:' +
-                orderParams.newClientOrderId +
+            console.error(error, orderParams.newClientOrderId +
                 ' ' +
                 orderParams.side +
                 ' at: ' +
                 orderParams.price);
-            console.log(error);
         });
     }
 }
@@ -393,22 +403,19 @@ async function exitUnenteredPositions(clientOrderID, toExit) {
             symbol: tradingSymbol,
             orderId: toExit[i].orderId,
         };
-        console.log('CANCEL:' +
+        logger.info('CANCEL:' +
             toExit[i].clientOrderID +
             ' ' +
-            toExit[i].orderSide +
-            ' at: ' +
-            toExit[i].orderStopPrice);
+            toExit[i].orderSide);
         markOrderCanceled(toExit[i].orderId); //mark locally as cancelled
         client.cancelOrder(orderParams).catch((error) => {
-            console.log(orderParams);
-            console.log(error);
+            console.error(error, orderParams);
         });
     }
 }
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
-        console.log(Number(trade.price));
+        console.info(Number(trade.price));
         addPriceToTicker(trade.price);
         calcStandardDev();
         if (findEntry) {
@@ -431,22 +438,30 @@ async function listenAccount() {
             case 'executionReport':
                 if (msg.symbol != tradingSymbol)
                     return; //not for us
-                console.log(msg);
-                if (msg.orderType == 'LIMIT' &&
-                    [
-                        'FILLED',
-                        'PARTIALLY_FILLED',
-                    ].indexOf(msg.orderStatus) != -1)
-                    liquidateOrder(msg);
+                let clientOrderID = msg.originalClientOrderId.indexOf('-0x') == -1
+                    ? msg.newClientOrderId
+                    : msg.originalClientOrderId;
+                logger.info({
+                    clientOrderID: clientOrderID,
+                    side: msg.side,
+                    price: msg.price,
+                    status: msg.orderStatus,
+                    traded: msg.totalTradeQuantity,
+                });
                 let order = {
                     //the id returned with -0x is ours. Binance toggles it sometimes
-                    clientOrderID: msg.originalClientOrderId.indexOf('-0x') == -1 ? msg.newClientOrderId : msg.originalClientOrderId,
+                    clientOrderID: clientOrderID,
                     orderId: msg.orderId,
                     orderStatus: msg.orderStatus,
                     orderPrice: Number(msg.price),
                     orderStopPrice: Number(msg.stopPrice),
                     orderSide: msg.side,
                 };
+                if (order.clientOrderID.indexOf('-0x') != -1 &&
+                    [
+                        'FILLED',
+                    ].indexOf(msg.orderStatus) != -1)
+                    liquidateOrder(order, Number(msg.quantity), msg.side);
                 let i = orders.findIndex((x) => x.orderId == msg.orderId);
                 if (i == -1) {
                     orders.push(order);
@@ -474,21 +489,21 @@ async function getOpenOrders() {
         }
     }
 }
-async function liquidateOrder(order) {
-    let price = order.originalClientOrderId.split('-')[1].replace('x', '.'); //convert id back to price
-    let quantity = formatQuantity(order.quantity * (100 - currentFee.maker), //less fees
-    price);
+async function liquidateOrder(order, quantity, side) {
+    let price = order.clientOrderID.split('-')[1].replace('x', '.'); //convert id back to price
+    let orderQuantity = formatQuantity(quantity * (100 - currentFee.maker) / 100, //less fees
+    Number(price));
     let orderParams = {
         symbol: tradingSymbol,
-        side: order.side == 'BUY' ? 'SELL' : 'BUY',
-        quantity: quantity.toString(),
+        side: side == 'BUY' ? 'SELL' : 'BUY',
+        quantity: orderQuantity.toString(),
         price: price,
         stopPrice: price,
         type: '',
         timeInForce: 'GTC',
         newOrderRespType: 'ACK',
     };
-    console.log('liquidate:' + orderParams);
+    logger.info('liquidate:', orderParams);
     if (orderParams.side == 'BUY') {
         orderParams.type = 'TAKE_PROFIT_LIMIT';
     }
@@ -496,8 +511,7 @@ async function liquidateOrder(order) {
         orderParams.type = 'TAKE_PROFIT_LIMIT';
     }
     client.order(orderParams).catch((error) => {
-        console.log(orderParams);
-        console.log(error);
+        console.error(error, orderParams);
     });
 }
 function trimOrders() {

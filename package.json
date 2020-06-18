@@ -23,7 +23,8 @@
     "@types/node": "^14.0.5",
     "binance-api-node": "^0.9.23",
     "dotenv": "^8.2.0",
-    "mathjs": "^7.0.0"
+    "mathjs": "^7.0.0",
+    "winston": "^3.2.1"
   },
   "devDependencies": {
     "@types/mathjs": "^6.0.5"
