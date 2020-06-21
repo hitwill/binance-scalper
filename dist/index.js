@@ -330,10 +330,10 @@ function enterPositions() {
         takeProfitSellOrder.toString().replace('.', 'x');
     let entryType = findpositionsToExit(orderIdBuy, orderIdSell, priceBuy, priceSell);
     if (!entryType.buy) {
-        logger.info('reusing buy');
+        console.log('reusing buy');
     }
     if (!entryType.sell) {
-        logger.info('reusing sell');
+        console.log('reusing sell');
     }
     if (entryType.buy &&
         quantityBuy > 0 &&
@@ -354,7 +354,7 @@ function enterPositions() {
             side: side,
             quantity: quantity.toString(),
             price: price.toString(),
-            stopPrice: price.toString(),
+            //stopPrice: price.toString(),
             type: '',
             timeInForce: 'GTC',
             newOrderRespType: 'ACK',
@@ -365,10 +365,10 @@ function enterPositions() {
             ' at: ' +
             orderParams.price);
         if (side == 'BUY') {
-            orderParams.type = 'TAKE_PROFIT_LIMIT';
+            orderParams.type = 'LIMIT'; //TAKE_PROFIT_LIMIT
         }
         else {
-            orderParams.type = 'TAKE_PROFIT_LIMIT';
+            orderParams.type = 'LIMIT'; //TAKE_PROFIT_LIMIT
         }
         client.order(orderParams).catch((error) => {
             console.error(error, orderParams.newClientOrderId +
@@ -403,7 +403,7 @@ async function exitUnenteredPositions(clientOrderID, toExit) {
             symbol: tradingSymbol,
             orderId: toExit[i].orderId,
         };
-        logger.info('CANCEL:' +
+        console.log('CANCEL:' +
             toExit[i].clientOrderID +
             ' ' +
             toExit[i].orderSide);
@@ -498,26 +498,28 @@ async function liquidateOrder(order, quantity, side) {
         side: side == 'BUY' ? 'SELL' : 'BUY',
         quantity: orderQuantity.toString(),
         price: price,
-        stopPrice: price,
+        // stopPrice: price,
         type: '',
         timeInForce: 'GTC',
         newOrderRespType: 'ACK',
     };
     logger.info('liquidate:', orderParams);
     if (orderParams.side == 'BUY') {
-        orderParams.type = 'TAKE_PROFIT_LIMIT';
+        orderParams.type = 'LIMIT';
     }
     else {
-        orderParams.type = 'TAKE_PROFIT_LIMIT';
+        orderParams.type = 'LIMIT';
     }
     client.order(orderParams).catch((error) => {
-        console.error(error, orderParams);
+        logger.info(error, orderParams);
     });
 }
 function trimOrders() {
     let monitored = [];
     //remove order statuses we don't need to monitor
     for (let i = 0, size = orders.length; i < size; i++) {
+        if (orders[i].clientOrderID.indexOf('-0x') == -1)
+            continue; //liquidate type order - don't monitor it. Just set and forget
         switch (orders[i].orderStatus) {
             case 'NEW':
                 monitored.push(orders[i]);
