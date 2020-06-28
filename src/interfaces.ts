@@ -25,8 +25,14 @@ interface assets {
         minQty: number;
         maxQty: number;
         stepSize: number;
+        takeProfitPips: number,
         balance: number;
     };
+}
+
+interface findEntry {
+    buy : boolean,
+    sell : boolean
 }
 
 interface order {
