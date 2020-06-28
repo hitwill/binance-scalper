@@ -329,9 +329,9 @@ function calcTakeProfitPips(side : orderSide) {
 
     let minProfit = Number(
         '0.' + String().padEnd(precision - 1, '0') + '1'
-    ); //our takeProfit is just the mininimum profit we can get (scalping)
+    ) * minTakeProfitPips; //our takeProfit is just the mininimum profit we can get (scalping)
     
-    return minProfit * minTakeProfitPips; //we can add rules to increase profit later
+    return minProfit;
 }
 
 function findpositionsToExit(
@@ -532,6 +532,7 @@ function enterPositions() {
         } else {
             orderParams.type = 'LIMIT'; //TAKE_PROFIT_LIMIT
         }
+        console.log(orderParams);
         client.order(orderParams as any).catch((error) => {
             console.error(
                 error,
@@ -581,12 +582,6 @@ async function exitUnenteredPositions(clientOrderID: string, toExit: order[]) {
             symbol: tradingSymbol,
             orderId: toExit[i].orderId,
         };
-        console.log(
-            'CANCEL:' +
-                toExit[i].clientOrderID +
-                ' ' +
-                toExit[i].orderSide
-        );
 
         markOrderCanceled(toExit[i].orderId); //mark locally as cancelled
         client.cancelOrder(orderParams as any).catch((error) => {
@@ -597,7 +592,7 @@ async function exitUnenteredPositions(clientOrderID: string, toExit: order[]) {
 
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
-        console.info(Number(trade.price));
+        console.log(Number(trade.price));
         addPriceToTicker(trade.price);
         calcStandardDev();
         if (findEntry.buy == true || findEntry.sell == true) {
@@ -705,6 +700,8 @@ async function liquidateOrder(order :order,  side:string) {
         orderParams.type = 'LIMIT';
     }
 
+    console.log('LIQUIDATE:');
+    console.log(orderParams);
     client.order(orderParams as any).catch((error) => {
         logger.info(error, orderParams);
     });
