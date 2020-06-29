@@ -23,11 +23,14 @@ const client = binance_api_node_1.default({
 //config vars
 let channelLengthMultiple = 1; //multiple of standard dev long channel
 let spendFractionPerTrade = 0.1; //when higher, less pips are  needed to make a profit. Keep uner 0.5
-let minTakeProfitTicks = 2; //force target price to move by x ticks at least. (sometimes it's small depending on volume)
+let minTakeProfitPips = 1; //force target price to move by x ticks at least. (sometimes it's small depending on volume)
 //end config
+//testers
+let tester = { maxOrders: 50, totalOrders: 0 };
+//end testers
 let priceTicker = []; //hold a list of recent prices
 let quantile = { upper: Infinity, lower: 0 };
-let findEntry = false;
+let findEntry = { buy: false, sell: false };
 let orders = [];
 let currentFee = { maker: Infinity, taker: Infinity };
 let assets = {
@@ -47,6 +50,7 @@ let assets = {
         minQty: Infinity,
         maxQty: 0,
         stepSize: 0,
+        takeProfitPips: 0,
         balance: null,
     },
 };
@@ -57,7 +61,8 @@ async function start() {
         getBalances(),
         getOpenOrders(),
     ]).then((values) => {
-        assets.quoteAsset.takeProfitPips = calcTakeProfitPips();
+        assets.quoteAsset.takeProfitPips = calcTakeProfitPips('BUY'); //BTC
+        assets.baseAsset.takeProfitPips = calcTakeProfitPips('SELL'); //ETH
         listenAccount();
         listenMarket(); //start listening
     });
@@ -117,8 +122,6 @@ function extractRules(symbol) {
                 assets.quoteAsset.minPrice = Number(filter.minPrice);
                 assets.quoteAsset.maxPrice = Number(filter.maxPrice);
                 assets.quoteAsset.tickSize = Number(filter.tickSize);
-                minTakeProfitTicks =
-                    minTakeProfitTicks * assets.quoteAsset.tickSize;
                 break;
             case 'MIN_NOTIONAL':
                 assets.minNotional = Number(filter.minNotional);
@@ -135,7 +138,8 @@ function calcStandardDev() {
     let finalTickerLength = Infinity;
     let newTicker = []; // we'll resize the ticker to fit the standard dev we can trade in
     for (let tickerLength = 1, size = priceTicker.length; tickerLength <= size; tickerLength++) {
-        findEntry = false;
+        findEntry.buy = false;
+        findEntry.sell = false;
         newTicker.push(priceTicker[tickerLength - 1]);
         calcQuantile(newTicker);
         if (tickerLength < minTickerLength)
@@ -144,14 +148,21 @@ function calcStandardDev() {
             continue; //needs to be distributed around mean **over time**
         standardDeviation = mathjs_1.std(newTicker, 'biased');
         //Get the sell price we would use if we entered the market
-        let entryQuantity = getEntryQuantity('BUY', quantile.lower);
-        let sellPrice = calcLiquidationPrice(entryQuantity, quantile.lower, 'BUY');
+        let entryQuantityBuy = getEntryQuantity('BUY', quantile.lower);
+        let entryQuantitySell = getEntryQuantity('SELL', quantile.upper);
+        let buyExitPrice = calcBuyLiquidationPrice(entryQuantityBuy, quantile.lower);
+        let sellExitPrice = calcSellLiquidationPrice(entryQuantitySell, quantile.upper);
         //multiply deviate by 2 because it's one end, middle, then other end
-        if (standardDeviation * 2 >= sellPrice - quantile.lower) {
+        if (standardDeviation * 2 >= buyExitPrice - quantile.lower || standardDeviation * 2 >= quantile.upper - sellExitPrice) {
             if (finalTickerLength == Infinity)
                 finalTickerLength = tickerLength * channelLengthMultiple;
             if (tickerLength >= finalTickerLength) {
-                findEntry = true;
+                if (standardDeviation * 2 >= buyExitPrice - quantile.lower) {
+                    findEntry.buy = true;
+                }
+                if (standardDeviation * 2 >= quantile.upper - sellExitPrice) {
+                    findEntry.sell = true;
+                }
                 break; //ticker is long enough to trust the deviation
             }
         }
@@ -216,39 +227,37 @@ function toPrecision(num, digits, roundType) {
     precise = Number(precise.toFixed(digits)); //needed to prevent something like 0.1 + 0.2 in js
     return precise;
 }
-function calcLiquidationPrice(tradeVolume, entryPrice, side) {
-    //formula below comes from: profit = volumeSell*exitPrice*fee - volumeBuy*priceBuy (volumeSell has buy fee incorporated)
-    let roundType;
-    let multiplier;
-    if (side == 'SELL') {
-        roundType = 'DOWN';
-        multiplier = -1;
-    }
-    else {
-        roundType = 'UP';
-        multiplier = 1;
-    }
-    let volumePrice = tradeVolume * entryPrice;
-    let profit = multiplier * assets.quoteAsset.takeProfitPips;
-    let afterFee = 100 / (100 - currentFee.maker);
-    let exitPrice = ((profit + volumePrice) * Math.pow(afterFee, 2)) / tradeVolume;
-    if (side == 'SELL') {
-        exitPrice = Math.min(entryPrice - minTakeProfitTicks, exitPrice);
-    }
-    else {
-        exitPrice = Math.max(entryPrice + minTakeProfitTicks, exitPrice);
-    }
-    exitPrice = toPrecision(exitPrice, assets.quoteAsset.tickSize.toString().split('.')[1].length, roundType); //set precission and round it up
-    return exitPrice;
+function calcBuyLiquidationPrice(volumeBuy, priceBuy) {
+    //profit = Vs.Px.Fee - Vb.Pb
+    let priceSell;
+    let fee = (100 - currentFee.maker) / 100;
+    priceSell = (assets.quoteAsset.takeProfitPips + volumeBuy * priceBuy) / (volumeBuy * fee * fee);
+    priceSell = toPrecision(priceSell, assets.quoteAsset.tickSize.toString().split('.')[1].length, 'UP'); //set precission and round it up
+    return priceSell;
 }
-function calcTakeProfitPips() {
-    let minProfit = Number('0.' + String().padEnd(assets.quoteAsset.precision - 1, '0') + 1); //our takeProfit is just the mininimum profit we can get (scalping)
-    return minProfit; //we can add rules to increase profit later
+function calcSellLiquidationPrice(volumeSell, priceSell) {
+    //profit = (Vs.Ps.Fee.Fee/Pb) - Vs
+    let priceBuy;
+    let fee = (100 - currentFee.maker) / 100;
+    priceBuy = (volumeSell * priceSell * fee * fee) / (assets.baseAsset.takeProfitPips + volumeSell);
+    priceBuy = toPrecision(priceBuy, assets.quoteAsset.tickSize.toString().split('.')[1].length, 'DOWN'); //set precission and round it down
+    return priceBuy;
+}
+function calcTakeProfitPips(side) {
+    let precision;
+    if (side == 'BUY') {
+        precision = assets.quoteAsset.precision; //profit is in BTC
+    }
+    else {
+        precision = assets.baseAsset.precision; //profit is in ETH
+    }
+    let minProfit = Number('0.' + String().padEnd(precision - 1, '0') + '1') * minTakeProfitPips; //our takeProfit is just the mininimum profit we can get (scalping)
+    return minProfit;
 }
 function findpositionsToExit(orderIdBuy, orderIdSell, priceBuy, priceSell) {
     //exit orders that are disimilar to next ones we'll make
     let entryType = { buy: true, sell: true };
-    let toExit = getUnenteredPositions(); //we store here - because the orders array will be changing through webhooks as we cancel
+    let toExit = getUnenteredPositions(false); //we store here - because the orders array will be changing through webhooks as we cancel
     for (let i = 0, size = toExit.length; i < size; i++) {
         switch (toExit[i].orderSide) {
             case 'BUY':
@@ -299,7 +308,7 @@ function getEntryQuantity(side, price) {
 function formatQuantity(quantity, price) {
     let significantDigits;
     if (quantity * price < assets.minNotional)
-        quantity = assets.minNotional / price + assets.quoteAsset.tickSize;
+        quantity = (assets.minNotional / price) + assets.baseAsset.stepSize;
     if (quantity < assets.baseAsset.minQty)
         quantity = assets.baseAsset.minQty;
     if (quantity > assets.baseAsset.maxQty)
@@ -321,27 +330,37 @@ function enterPositions() {
     let priceSell = toPrecision(quantile.upper, significantDigits, 'UP');
     quantityBuy = getEntryQuantity('BUY', priceBuy);
     quantitySell = getEntryQuantity('SELL', priceSell);
-    let takeProfitBuyOrder = calcLiquidationPrice(quantityBuy, priceBuy, 'BUY');
-    let takeProfitSellOrder = calcLiquidationPrice(quantitySell, priceSell, 'SELL');
+    let takeProfitBuyOrder = calcBuyLiquidationPrice(quantityBuy, priceBuy);
+    let takeProfitSellOrder = calcSellLiquidationPrice(quantitySell, priceSell);
+    let buyEntryExitConfirmed = confirmEntryExitQty(priceBuy, takeProfitBuyOrder, quantityBuy, 'BUY');
+    let sellEntryExitConfirmed = confirmEntryExitQty(priceSell, takeProfitSellOrder, quantitySell, 'Sell');
+    quantityBuy = buyEntryExitConfirmed.entryQty;
+    quantitySell = sellEntryExitConfirmed.entryQty;
     //Need to tag B/S 'cause exit positions can be same. Avoid using duplicate order id
-    let orderIdBuy = randomString() + 'B-' + takeProfitBuyOrder.toString().replace('.', 'x');
+    let orderIdBuy = randomString() + 'B-' + takeProfitBuyOrder.toString().replace('.', 'x') + '-' + buyEntryExitConfirmed.exitQty.toString().replace('.', 'x');
     let orderIdSell = randomString() +
         'S-' +
-        takeProfitSellOrder.toString().replace('.', 'x');
+        takeProfitSellOrder.toString().replace('.', 'x') + '-' + sellEntryExitConfirmed.exitQty.toString().replace('.', 'x');
     let entryType = findpositionsToExit(orderIdBuy, orderIdSell, priceBuy, priceSell);
+    if (tester.totalOrders >= tester.maxOrders) {
+        console.log('DONE-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
+        return;
+    }
     if (!entryType.buy) {
         console.log('reusing buy');
     }
     if (!entryType.sell) {
         console.log('reusing sell');
     }
-    if (entryType.buy &&
+    if (findEntry.buy &&
+        entryType.buy &&
         quantityBuy > 0 &&
         priceBuy >= assets.quoteAsset.minPrice &&
         priceBuy < priceTicker[0]) {
         doOrder(orderIdBuy, tradingSymbol, 'BUY', quantityBuy, priceBuy);
     }
-    if (entryType.sell &&
+    if (findEntry.sell &&
+        entryType.sell &&
         quantitySell > 0 &&
         priceSell >= assets.quoteAsset.minPrice &&
         priceSell > priceTicker[0]) {
@@ -354,22 +373,25 @@ function enterPositions() {
             side: side,
             quantity: quantity.toString(),
             price: price.toString(),
-            //stopPrice: price.toString(),
+            // stopPrice: price.toString(),
             type: '',
             timeInForce: 'GTC',
             newOrderRespType: 'ACK',
         };
-        logger.info(orderParams.newClientOrderId +
-            ' ' +
-            side +
-            ' at: ' +
-            orderParams.price);
+        /*logger.info(
+            orderParams.newClientOrderId +
+                ' ' +
+                side +
+                ' at: ' +
+                orderParams.price
+        );*/
         if (side == 'BUY') {
             orderParams.type = 'LIMIT'; //TAKE_PROFIT_LIMIT
         }
         else {
             orderParams.type = 'LIMIT'; //TAKE_PROFIT_LIMIT
         }
+        console.log(orderParams);
         client.order(orderParams).catch((error) => {
             console.error(error, orderParams.newClientOrderId +
                 ' ' +
@@ -379,11 +401,22 @@ function enterPositions() {
         });
     }
 }
-function getUnenteredPositions() {
+function getUnenteredPositions(entryType) {
     let toExit = [];
     for (let i = 0, size = orders.length; i < size; i++) {
-        if (orders[i].orderStatus == 'NEW')
-            toExit.push(orders[i]);
+        if (orders[i].orderStatus == 'NEW') {
+            if (entryType == false) {
+                toExit.push(orders[i]);
+            }
+            else {
+                if (entryType.buy == false && orders[i].orderSide == 'BUY') {
+                    toExit.push(orders[i]);
+                }
+                if (entryType.sell == false && orders[i].orderSide == 'SELL') {
+                    toExit.push(orders[i]);
+                }
+            }
+        }
     }
     return toExit;
 }
@@ -403,26 +436,24 @@ async function exitUnenteredPositions(clientOrderID, toExit) {
             symbol: tradingSymbol,
             orderId: toExit[i].orderId,
         };
-        console.log('CANCEL:' +
-            toExit[i].clientOrderID +
-            ' ' +
-            toExit[i].orderSide);
         markOrderCanceled(toExit[i].orderId); //mark locally as cancelled
         client.cancelOrder(orderParams).catch((error) => {
-            console.error(error, orderParams);
+            console.error('CANCEL ERROR');
+        }).then(() => {
+            console.log('CANCEL SUCCESS');
         });
     }
 }
 function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
-        console.info(Number(trade.price));
+        console.log(Number(trade.price));
         addPriceToTicker(trade.price);
         calcStandardDev();
-        if (findEntry) {
+        if (findEntry.buy == true || findEntry.sell == true) {
             enterPositions();
         }
-        else {
-            let toExit = getUnenteredPositions(); //we store here - because the orders array will be changing through webhooks as we cancel
+        if (findEntry.buy == false || findEntry.sell == false) {
+            let toExit = getUnenteredPositions(findEntry); //we store here - because the orders array will be changing through webhooks as we cancel
             exitUnenteredPositions(null, toExit); //exit all unentered positions
         }
     });
@@ -441,13 +472,13 @@ async function listenAccount() {
                 let clientOrderID = msg.originalClientOrderId.indexOf('-0x') == -1
                     ? msg.newClientOrderId
                     : msg.originalClientOrderId;
-                logger.info({
-                    clientOrderID: clientOrderID,
-                    side: msg.side,
-                    price: msg.price,
-                    status: msg.orderStatus,
-                    traded: msg.totalTradeQuantity,
-                });
+                /* logger.info({
+                     clientOrderID: clientOrderID,
+                     side: msg.side,
+                     price: msg.price,
+                     status: msg.orderStatus,
+                     traded: msg.totalTradeQuantity,
+                 });*/
                 let order = {
                     //the id returned with -0x is ours. Binance toggles it sometimes
                     clientOrderID: clientOrderID,
@@ -461,7 +492,7 @@ async function listenAccount() {
                     [
                         'FILLED',
                     ].indexOf(msg.orderStatus) != -1)
-                    liquidateOrder(order, Number(msg.quantity), msg.side);
+                    liquidateOrder(order, msg.side);
                 let i = orders.findIndex((x) => x.orderId == msg.orderId);
                 if (i == -1) {
                     orders.push(order);
@@ -489,27 +520,29 @@ async function getOpenOrders() {
         }
     }
 }
-async function liquidateOrder(order, quantity, side) {
+async function liquidateOrder(order, side) {
+    tester.totalOrders++;
     let price = order.clientOrderID.split('-')[1].replace('x', '.'); //convert id back to price
-    let orderQuantity = formatQuantity(quantity * (100 - currentFee.maker) / 100, //less fees
-    Number(price));
+    let orderQuantity = order.clientOrderID.split('-')[2].replace('x', '.');
     let orderParams = {
         symbol: tradingSymbol,
         side: side == 'BUY' ? 'SELL' : 'BUY',
         quantity: orderQuantity.toString(),
         price: price,
-        // stopPrice: price,
+        //stopPrice: price,
         type: '',
         timeInForce: 'GTC',
         newOrderRespType: 'ACK',
     };
-    logger.info('liquidate:', orderParams);
+    //logger.info('liquidate:' , orderParams);
     if (orderParams.side == 'BUY') {
         orderParams.type = 'LIMIT';
     }
     else {
         orderParams.type = 'LIMIT';
     }
+    console.log('LIQUIDATE:');
+    console.log(orderParams);
     client.order(orderParams).catch((error) => {
         logger.info(error, orderParams);
     });
@@ -527,6 +560,30 @@ function trimOrders() {
         }
     }
     orders = monitored;
+}
+//entryQty is amount of ETH being bought or sold for BTC
+function confirmEntryExitQty(entryPrice, exitPrice, intendedEntryQty, side) {
+    let exitQty;
+    let confirmedEntryQty;
+    let fee = ((100 - currentFee.maker) / 100);
+    if (side == 'BUY') {
+        //Buying ETH with BTC
+        exitQty = intendedEntryQty * fee;
+    }
+    else {
+        //Selling ETH for BTC 
+        let exitQtyBTC = (intendedEntryQty * entryPrice) * fee;
+        exitQty = exitQtyBTC / exitPrice;
+    }
+    exitQty = formatQuantity(exitQty, exitPrice); //make sure it's above minimum and rounded
+    if (side == 'BUY') {
+        confirmedEntryQty = exitQty / fee;
+    }
+    else {
+        confirmedEntryQty = (exitQty * exitPrice) / (entryPrice * fee);
+    }
+    confirmedEntryQty = formatQuantity(confirmedEntryQty, entryPrice); //make sure it's above minimum
+    return { exitQty: exitQty, entryQty: confirmedEntryQty };
 }
 start();
 //# sourceMappingURL=index.js.map

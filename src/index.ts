@@ -26,11 +26,17 @@ const client = Binance({
 
 //config vars
 let channelLengthMultiple: number = 1; //multiple of standard dev long channel
-let spendFractionPerTrade: number = 0.1; //when higher, less pips are  needed to make a profit. Keep uner 0.5
-let minTakeProfitPips: number = 1; //force target price to move by x ticks at least. (sometimes it's small depending on volume)
+let spendFractionPerTrade: number = 0.4; //when higher, less pips are  needed to make a profit.
+let minTakeProfitPips: number = 1; //minimum pips of proft
+let maxVolumeFraction: number = 0.2; //biggest volume we can trade, based on recent volume history
 //end config
 
+//testers
+let tester = {maxOrders: 50, totalOrders: 0};
+//end testers
+
 let priceTicker: number[] = []; //hold a list of recent prices
+let volumeTicker: number[] = []; //hold a list of recent volumes
 let quantile: quantile = { upper: Infinity, lower: 0 };
 let findEntry: findEntry = {buy : false, sell : false};
 let orders: order[] = [];
@@ -150,11 +156,18 @@ function addPriceToTicker(price) {
     priceTicker.unshift(Number(price));
 }
 
+function volumePriceToTicker(volume) {
+    volumeTicker.unshift(Number(volume));
+}
+
 function calcStandardDev() {
     let standardDeviation: number = 0;
     let minTickerLength: number = 3;
     let finalTickerLength: number = Infinity;
-    let newTicker: number[] = []; // we'll resize the ticker to fit the standard dev we can trade in
+    let newPriceTicker: number[] = []; // we'll resize the ticker to fit the standard dev we can trade in
+    let newVolumeTicker: number[] = []; // we'll resize the ticker to fit the standard dev we can trade in
+
+    
     for (
         let tickerLength = 1, size = priceTicker.length;
         tickerLength <= size;
@@ -163,12 +176,14 @@ function calcStandardDev() {
         findEntry.buy = false;
         findEntry.sell = false;
 
-        newTicker.push(priceTicker[tickerLength - 1]);
-        calcQuantile(newTicker);
-        if (tickerLength < minTickerLength) continue;
-        if (!isEvenlyDistributed(newTicker)) continue; //needs to be distributed around mean **over time**
+        newPriceTicker.push(priceTicker[tickerLength - 1]);
+        newVolumeTicker.push(volumeTicker[tickerLength - 1]);
 
-        standardDeviation = std(newTicker, 'biased');
+        calcQuantile(newPriceTicker);
+        if (tickerLength < minTickerLength) continue;
+        if (!isEvenlyDistributed(newPriceTicker)) continue; //needs to be distributed around mean **over time**
+
+        standardDeviation = std(newPriceTicker, 'biased');
 
         //Get the sell price we would use if we entered the market
         let entryQuantityBuy = getEntryQuantity(
@@ -206,7 +221,9 @@ function calcStandardDev() {
             }
         }
     }
-    priceTicker = newTicker; // resize the ticker
+
+    volumeTicker = newVolumeTicker;
+    priceTicker = newPriceTicker; // resize the ticker
 }
 
 function isEvenlyDistributed(ticker: number[]): boolean {
@@ -394,8 +411,17 @@ function getEntryQuantity(side: orderSide, price: number): number {
     return quantity;
 }
 
+function maxAllowableRecentVolume() : number {
+    //maxVolumeFraction
+    let average: number = mean(volumeTicker) * maxVolumeFraction;
+    return average;
+}
+
 function formatQuantity(quantity: number, price: number) {
     let significantDigits: number;
+    let averageVolume = maxAllowableRecentVolume();
+
+    if (quantity > averageVolume) quantity = averageVolume;
     if (quantity * price < assets.minNotional)
         quantity = (assets.minNotional / price) + assets.baseAsset.stepSize;
     if (quantity < assets.baseAsset.minQty) quantity = assets.baseAsset.minQty;
@@ -413,6 +439,8 @@ function randomString() {
 }
 
 function enterPositions() {
+    
+
     let quantityBuy: number;
     let quantitySell: number;
 
@@ -462,6 +490,11 @@ function enterPositions() {
         priceBuy,
         priceSell
     );
+
+    if (tester.totalOrders >= tester.maxOrders){
+        console.log('DONE-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
+        return;
+    } 
 
     if (!entryType.buy) {
         console.log('reusing buy');
@@ -585,7 +618,9 @@ async function exitUnenteredPositions(clientOrderID: string, toExit: order[]) {
 
         markOrderCanceled(toExit[i].orderId); //mark locally as cancelled
         client.cancelOrder(orderParams as any).catch((error) => {
-            console.error(error,orderParams);
+            console.error('CANCEL ERROR');
+        }).then(() => {
+            console.log('CANCEL SUCCESS')
         });
     }
 }
@@ -594,6 +629,7 @@ function listenMarket() {
     client.ws.aggTrades([tradingSymbol], (trade) => {
         console.log(Number(trade.price));
         addPriceToTicker(trade.price);
+        volumePriceToTicker(trade.quantity);
         calcStandardDev();
         if (findEntry.buy == true || findEntry.sell == true) {
             enterPositions();
@@ -680,6 +716,7 @@ async function getOpenOrders() {
 }
 
 async function liquidateOrder(order :order,  side:string) {
+    tester.totalOrders++;
     let price = order.clientOrderID.split('-')[1].replace('x', '.'); //convert id back to price
     let orderQuantity = order.clientOrderID.split('-')[2].replace('x', '.');
 
